@@ -32,3 +32,25 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email or self.username
+
+
+class WidgetLayout(models.Model):
+    """Store user's dashboard widget layout"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='widget_layout')
+    layout = models.JSONField(
+        default=list,
+        help_text="JSON array of widget layout configuration"
+    )
+    available_widgets = models.JSONField(
+        default=list,
+        help_text="JSON array of available widgets in library"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.email}'s Widget Layout"
+
+    class Meta:
+        verbose_name = "Widget Layout"
+        verbose_name_plural = "Widget Layouts"

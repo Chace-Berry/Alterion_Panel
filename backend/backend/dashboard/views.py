@@ -5,7 +5,7 @@ import platform
 import time
 import threading
 import json
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework import status
 import subprocess
 import os
@@ -13,6 +13,7 @@ import winreg
 import uuid
 import hashlib
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from authentication.cookie_oauth2 import CookieOAuth2Authentication
 
 def get_stable_server_id():
     """
@@ -86,6 +87,7 @@ except ImportError:
     WMI_AVAILABLE = False
 
 class MetricsAPIView(APIView):
+    authentication_classes = [CookieOAuth2Authentication]
     permission_classes = [IsAuthenticated]
     prev_net = None
     prev_time = None
@@ -432,6 +434,7 @@ class MetricsAPIView(APIView):
 
 # Separate endpoint for internet speed test (non-blocking)
 class InternetSpeedTestView(APIView):
+    authentication_classes = [CookieOAuth2Authentication]
     permission_classes = [IsAuthenticated]
     speed_test_cache = {}
     test_running = False
@@ -521,11 +524,14 @@ class InternetSpeedTestView(APIView):
 
 
 # Example initial data API view
-from django.contrib.auth.models import User
+from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+User = get_user_model()
+
 class InitialDataView(APIView):
+    authentication_classes = [CookieOAuth2Authentication]
     def get(self, request):
         user = request.user if request.user.is_authenticated else None
         data = {
@@ -561,7 +567,10 @@ class AlertViewSet(viewsets.ModelViewSet):
 
 # Simple connectivity and speed test using speedtest library
 @api_view(["GET"])
+@authentication_classes([CookieOAuth2Authentication])
+@permission_classes([IsAuthenticated])
 def simple_speed_test(request):
+
     import speedtest
     result = {}
     try:

@@ -2,10 +2,18 @@ from rest_framework.authentication import BaseAuthentication
 from oauth2_provider.models import AccessToken
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+import pathlib
 
 class CookieOAuth2Authentication(BaseAuthentication):
     def authenticate(self, request):
-        token = request.COOKIES.get('msa_access')
+        # Read server_id directly from serverid.dat file
+        server_id_path = (pathlib.Path(__file__).parent.parent / "dashboard" / "serverid.dat").resolve()
+        try:
+            server_id = server_id_path.read_text().strip()
+        except Exception:
+            server_id = "default"
+        
+        token = request.COOKIES.get(f'alt_acs-tkn_{server_id}')
         if not token:
             return None
         try:

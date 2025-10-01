@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-07jj1fvq#v29s9r7i%k!h0is2=l4bay1yll8o5z1=9=f5f2=ud
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['192.168.68.100','127.0.0.1']
 
 
 # Application definition
@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'oauth2_provider',
     'accounts',
     'corsheaders',
+    'sslserver',
 ]
 
 MIDDLEWARE = [
@@ -166,6 +167,7 @@ LOGGING = {
 CORS_ALLOWED_ORIGINS = [
     'https://localhost:13527',
     'https://127.0.0.1:13527',
+    'https://192.168.68.100:13527',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -184,3 +186,6 @@ REST_FRAMEWORK = {
 OAUTH2_PROVIDER = {
     'OAUTH2_VALIDATOR_CLASS': 'authentication.custom_oauth2_validator.CustomOAuth2Validator',
 }
+
+# Custom User Model
+AUTH_USER_MODEL = 'accounts.User'
