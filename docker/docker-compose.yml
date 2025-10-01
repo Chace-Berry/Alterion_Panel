@@ -1,0 +1,73 @@
+version: '3.9'
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: backend
+    env_file:
+      - ../backend/.env
+    ports:
+      - "8000:8000"
+      - "8080:8080"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ../backend:/app
+      - backend_keys:/app/backend/services
+      - backend_serverid:/app/backend/dashboard
+    entrypoint: ["/entrypoint.sh"]
+    command: ["sh", "-c", "service nginx start && gunicorn backend.wsgi:application --bind 0.0.0.0:8000 --workers 3 && daphne backend.asgi:application --bind 0.0.0.0 --port 8080"]
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    volumes:
+      - ../frontend:/app
+
+  db:
+    image: postgres:15
+    container_name: db
+    environment:
+      POSTGRES_DB: alterion_db
+      POSTGRES_USER: alterion_user
+      POSTGRES_PASSWORD: alterion_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  celery:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: celery
+    command: ["celery", "-A", "backend", "worker", "--loglevel=info"]
+    depends_on:
+      - backend
+      - redis
+    env_file:
+      - ../backend/.env
+    volumes:
+      - ../backend:/app
+
+volumes:
+  pgdata:
+  redisdata:
+  backend_keys:
+  backend_serverid:

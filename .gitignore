@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+env/
+ENV/
+
+# Django
+*.log
+*.pot
+*.pyc
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+/static/
+/media/
+
+# Node/React
+node_modules/
+/frontend/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# Security & Certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+serverid.dat
+SECRET_KEY
+
+# Build artifacts (PyInstaller & Inno Setup)
+/dist/
+/build/
+*.spec.bak
+installer_output/
+*.exe
+
+# Database
+db.sqlite3
+db.sqlite3-journal
+*.db
+*.sqlite
