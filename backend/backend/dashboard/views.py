@@ -1,4 +1,4 @@
-# ...existing imports...
+
 import logging
 import psutil
 import platform
@@ -16,12 +16,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from authentication.cookie_oauth2 import CookieOAuth2Authentication
 
 def get_stable_server_id():
-    """
-    Generate or load a stable server ID based on hardware/metrics info.
-    If a server_id.txt file exists, use it. Otherwise, generate and persist it.
-    """
+    
     import pathlib
-    # Save serverid.dat in the dashboard/ directory next to manage.py
+
     server_id_path = (pathlib.Path(__file__).parent / "serverid.dat").resolve()
     if server_id_path.exists():
         try:
@@ -31,7 +28,6 @@ def get_stable_server_id():
         except Exception:
             pass
 
-    # Generate new server ID from metrics/hardware
     try:
         mac = uuid.getnode()
         mac_str = f"{mac:012x}"
@@ -97,18 +93,17 @@ class MetricsAPIView(APIView):
     
     @classmethod
     def get_cpu_temperature(cls):
-        """Get CPU temperature using multiple methods"""
+        
         try:
-            # Method 1: psutil sensors (Linux/macOS)
+
             if hasattr(psutil, 'sensors_temperatures'):
                 temps = psutil.sensors_temperatures()
                 if temps:
-                    # Try different sensor names
+
                     for sensor_name in ['coretemp', 'cpu-thermal', 'acpitz', 'k10temp']:
                         if sensor_name in temps and temps[sensor_name]:
                             return temps[sensor_name][0].current
-            
-            # Method 2: Windows WMI
+
             if platform.system() == "Windows" and WMI_AVAILABLE:
                 try:
                     c = wmi.WMI(namespace="root\\wmi")
@@ -117,8 +112,7 @@ class MetricsAPIView(APIView):
                         return (temp_info[0].CurrentTemperature / 10.0) - 273.15
                 except:
                     pass
-                
-                # Try OpenHardwareMonitor WMI
+
                 try:
                     c = wmi.WMI(namespace="root\\OpenHardwareMonitor")
                     sensors = c.Sensor()
@@ -127,11 +121,10 @@ class MetricsAPIView(APIView):
                             return sensor.Value
                 except:
                     pass
-            
-            # Method 3: Command line tools
+
             if platform.system() == "Windows":
                 try:
-                    # Try PowerShell command for thermal zone
+
                     result = subprocess.run([
                         'powershell', '-Command', 
                         'Get-WmiObject -Namespace "root/wmi" -Class MSAcpi_ThermalZoneTemperature | Select-Object -First 1 | ForEach-Object { ($_.CurrentTemperature / 10) - 273.15 }'
@@ -148,10 +141,9 @@ class MetricsAPIView(APIView):
 
     @classmethod
     def get_hardware_info(cls):
-        """Get detailed hardware information with caching"""
-        current_time = time.time()
         
-        # Return cached data if still valid
+        current_time = time.time()
+
         if (current_time - cls.cache_timestamp < cls.cache_duration and 
             cls.hardware_cache):
             return cls.hardware_cache
@@ -165,19 +157,18 @@ class MetricsAPIView(APIView):
         
         try:
             if platform.system() == "Windows":
-                # Method 1: Registry-based detection (faster and more reliable)
+
                 try:
-                    # CPU info from registry
+
                     with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 
                                       r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as key:
                         cpu_brand = winreg.QueryValueEx(key, "ProcessorNameString")[0]
                         hardware_info["cpu_brand"] = cpu_brand.strip()
                 except:
                     pass
-                
-                # Method 2: WMIC commands (faster than WMI COM)
+
                 try:
-                    # Disk info via WMIC
+
                     result = subprocess.run(['wmic', 'diskdrive', 'get', 'model,mediatype', '/format:csv'], 
                                           capture_output=True, text=True, timeout=5)
                     if result.returncode == 0:
@@ -199,7 +190,7 @@ class MetricsAPIView(APIView):
                     pass
                 
                 try:
-                    # RAM info via WMIC
+
                     result = subprocess.run(['wmic', 'memorychip', 'get', 'memorytype,speed', '/format:csv'], 
                                           capture_output=True, text=True, timeout=5)
                     if result.returncode == 0:
@@ -224,7 +215,7 @@ class MetricsAPIView(APIView):
                     pass
                 
                 try:
-                    # Motherboard info via WMIC
+
                     result = subprocess.run(['wmic', 'baseboard', 'get', 'manufacturer,product', '/format:csv'], 
                                           capture_output=True, text=True, timeout=5)
                     if result.returncode == 0:
@@ -240,14 +231,12 @@ class MetricsAPIView(APIView):
                                         break
                 except:
                     pass
-                
-                # Method 3: WMI as fallback (with proper COM initialization)
+
                 if WMI_AVAILABLE and any(v == "Unknown" for v in hardware_info.values()):
                     try:
                         pythoncom.CoInitialize()  # Initialize COM for this thread
                         c = wmi.WMI()
-                        
-                        # Only query what we haven't found yet
+
                         if hardware_info["disk_model"] == "Unknown":
                             disks = c.Win32_DiskDrive()
                             if disks:
@@ -289,8 +278,7 @@ class MetricsAPIView(APIView):
                             
         except Exception as e:
             logging.warning(f"Hardware info detection failed: {e}")
-        
-        # Cache the results
+
         cls.hardware_cache = hardware_info
         cls.cache_timestamp = current_time
         
@@ -298,28 +286,22 @@ class MetricsAPIView(APIView):
 
     def get(self, request):
         start_time = time.time()
-        
-        # Get basic system info (fast operations)
+
         vm = psutil.virtual_memory()
         du = psutil.disk_usage('/')
         used_ram = vm.total - vm.available
-        
-        # Get CPU info
+
         cpu_info = cpuinfo.get_cpu_info() if cpuinfo else {}
         cpu_brand = cpu_info.get("brand_raw", platform.processor())
-        
-        # Get hardware details (cached)
+
         hardware_details = self.get_hardware_info()
-        
-        # CPU temperature (optimized)
+
         cpu_temp = self.get_cpu_temperature()
-        
-        # CPU frequencies and cores
+
         cpu_physical_cores = psutil.cpu_count(logical=False)
         cpu_total_cores = psutil.cpu_count(logical=True)
         cpu_freq = psutil.cpu_freq()
-        
-        # OS details (optimized)
+
         if platform.system() == "Linux" and distro:
             os_name = distro.name(pretty=True)
             os_release = distro.version()
@@ -329,7 +311,6 @@ class MetricsAPIView(APIView):
             os_release = platform.release()
             os_version = platform.version()
 
-        # GPU information (with error handling)
         gpu_info = []
         if GPUtil:
             try:
@@ -350,7 +331,6 @@ class MetricsAPIView(APIView):
             except Exception as e:
                 logging.warning(f"GPU info failed: {e}")
 
-        # Network speeds (improved calculation)
         current_net = psutil.net_io_counters()
         current_time = time.time()
         
@@ -360,14 +340,13 @@ class MetricsAPIView(APIView):
         if self.prev_net and self.prev_time:
             time_diff = current_time - self.prev_time
             if time_diff > 0:
-                # Calculate in Mbps for better readability
+
                 upload_speed = ((current_net.bytes_sent - self.prev_net.bytes_sent) * 8) / (time_diff * 1000000)
                 download_speed = ((current_net.bytes_recv - self.prev_net.bytes_recv) * 8) / (time_diff * 1000000)
         
         self.prev_net = current_net
         self.prev_time = current_time
 
-        # Get network interfaces info
         network_interfaces = []
         try:
             for interface, stats in psutil.net_if_stats().items():
@@ -381,7 +360,6 @@ class MetricsAPIView(APIView):
         except:
             pass
 
-        # Build response
         processing_time = round((time.time() - start_time) * 1000, 2)
         
         metrics = {
@@ -431,8 +409,6 @@ class MetricsAPIView(APIView):
         
         return Response(metrics)
 
-
-# Separate endpoint for internet speed test (non-blocking)
 class InternetSpeedTestView(APIView):
     authentication_classes = [CookieOAuth2Authentication]
     permission_classes = [IsAuthenticated]
@@ -440,7 +416,7 @@ class InternetSpeedTestView(APIView):
     test_running = False
     
     def get(self, request):
-        # Return cached results if available and recent
+
         if (self.speed_test_cache and 
             time.time() - self.speed_test_cache.get('timestamp', 0) < 3600 and self.speed_test_cache.get('complete', False) and not self.speed_test_cache.get('error')):
             return Response({
@@ -449,7 +425,6 @@ class InternetSpeedTestView(APIView):
                 "age_seconds": int(time.time() - self.speed_test_cache['timestamp'])
             })
 
-        # If test is running, return progress
         if self.test_running:
             progress = self.speed_test_cache.get('progress', None)
             return Response({
@@ -458,7 +433,6 @@ class InternetSpeedTestView(APIView):
                 "data": self.speed_test_cache.get('partial_results', None)
             })
 
-        # Start test if not running
         self.test_running = True
         self.speed_test_cache = {"progress": "Initializing...", "timestamp": time.time(), "complete": False}
         threading.Thread(target=self._run_speedtest_cli, daemon=True).start()
@@ -481,8 +455,7 @@ class InternetSpeedTestView(APIView):
             
             st.get_best_server()
             self.speed_test_cache["progress"] = "Testing ping..."
-            
-            # Get ping
+
             ping = st.results.ping
             partial_results = {"ping": f"Ping: {ping:.2f} ms"}
             self.speed_test_cache["partial_results"] = partial_results.copy()
@@ -502,8 +475,7 @@ class InternetSpeedTestView(APIView):
             self.speed_test_cache["partial_results"] = partial_results.copy()
             self.speed_test_cache["progress"] = f"Upload: {upload:.2f} Mbit/s"
             time.sleep(0.5)
-            
-            # Final results
+
             self.speed_test_cache = {
                 "ping": f"Ping: {ping:.2f} ms",
                 "download": f"Download: {download:.2f} Mbit/s",
@@ -522,8 +494,6 @@ class InternetSpeedTestView(APIView):
         finally:
             self.test_running = False
 
-
-# Example initial data API view
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -546,8 +516,6 @@ class InitialDataView(APIView):
         }
         return Response(data)
 
-
-# ViewSets
 from rest_framework import viewsets
 from .models import Server, Metric, Alert
 from .serializers import ServerSerializer, MetricSerializer, AlertSerializer
@@ -564,8 +532,6 @@ class AlertViewSet(viewsets.ModelViewSet):
     queryset = Alert.objects.all()
     serializer_class = AlertSerializer
 
-
-# Simple connectivity and speed test using speedtest library
 @api_view(["GET"])
 @authentication_classes([CookieOAuth2Authentication])
 @permission_classes([IsAuthenticated])
@@ -576,18 +542,253 @@ def simple_speed_test(request):
     try:
         st = speedtest.Speedtest()
         st.get_best_server()
-        download = st.download() / 1000000  # Convert to Mbit/s
-        upload = st.upload() / 1000000      # Convert to Mbit/s
+        download = st.download() / 1000000  
+        upload = st.upload() / 1000000      
         ping = st.results.ping
         
         result["ping"] = f"Ping: {ping:.3f} ms"
         result["download"] = f"Download: {download:.2f} Mbit/s"
         result["upload"] = f"Upload: {upload:.2f} Mbit/s"
         result["raw_output"] = f"Ping: {ping:.3f} ms\nDownload: {download:.2f} Mbit/s\nUpload: {upload:.2f} Mbit/s"
-        
-        # Debug print
+
         print("[DEBUG] Internet speed test response:", result)
     except Exception as e:
         result["error"] = str(e)
         print("[DEBUG] Internet speed test error:", str(e))
     return Response(result, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@authentication_classes([CookieOAuth2Authentication])
+@permission_classes([IsAuthenticated])
+def activity_logs(request):
+    
+    from .models import ActivityLog
+    from django.utils import timezone
+    from datetime import timedelta
+
+    limit = int(request.GET.get('limit', 50))
+    log_type = request.GET.get('type', None)
+    days = int(request.GET.get('days', 7))
+
+    cutoff_date = timezone.now() - timedelta(days=days)
+    logs = ActivityLog.objects.filter(timestamp__gte=cutoff_date)
+
+    if log_type:
+        logs = logs.filter(log_type=log_type)
+
+    logs = logs[:limit]
+
+    formatted_logs = []
+    for log in logs:
+
+        time_diff = timezone.now() - log.timestamp
+        if time_diff.total_seconds() < 60:
+            time_str = 'Just now'
+        elif time_diff.total_seconds() < 3600:
+            minutes = int(time_diff.total_seconds() / 60)
+            time_str = f'{minutes}m ago'
+        elif time_diff.total_seconds() < 86400:
+            hours = int(time_diff.total_seconds() / 3600)
+            time_str = f'{hours}h ago'
+        elif time_diff.days == 1:
+            time_str = 'Yesterday'
+        elif time_diff.days < 7:
+            time_str = f'{time_diff.days} days ago'
+        else:
+            time_str = log.timestamp.strftime('%b %d')
+        
+        formatted_logs.append({
+            'id': log.id,
+            'type': log.log_type,
+            'message': log.message,
+            'timestamp': time_str,
+            'full_timestamp': log.timestamp.isoformat(),
+            'user': log.user.username if log.user else None,
+            'details': log.details
+        })
+    
+    return Response(formatted_logs, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@authentication_classes([CookieOAuth2Authentication])
+@permission_classes([IsAuthenticated])
+def available_servers(request):
+    
+    import socket
+    from services.models import Node
+    
+    servers = []
+
+    server_id = get_stable_server_id()
+    try:
+        hostname = socket.gethostname()
+        ip = socket.gethostbyname(hostname)
+    except Exception:
+        hostname = "localhost"
+        ip = "127.0.0.1"
+    
+    servers.append({
+        'id': f'local-{server_id}',
+        'name': f'Server {server_id}',
+        'type': 'local',
+        'node_type': 'server',
+        'hostname': hostname,
+        'ip_address': ip,
+        'status': 'online',
+        'last_seen': None,
+        'is_local': True
+    })
+
+    try:
+        nodes = Node.objects.filter(owner=request.user)
+        for node in nodes:
+            servers.append({
+                'id': f'node-{node.id}',
+                'node_id': node.id,
+                'name': node.name,
+                'type': 'remote',
+                'node_type': node.node_type,
+                'hostname': node.hostname,
+                'ip_address': node.ip_address,
+                'status': node.status,
+                'last_seen': node.last_seen.isoformat() if node.last_seen else None,
+                'is_local': False
+            })
+    except Exception as e:
+        print(f"[DEBUG] Error fetching nodes: {e}")
+    
+    return Response(servers, status=status.HTTP_200_OK)
+
+
+@api_view(['POST'])
+@authentication_classes([CookieOAuth2Authentication])
+@permission_classes([IsAuthenticated])
+def resolve_alert(request, alert_id):
+    
+    from .models import Alert
+    from .logging_utils import log_alert_resolved
+    from django.utils import timezone
+    
+    try:
+        alert = Alert.objects.get(id=alert_id)
+        alert.resolved = True
+        alert.resolved_at = timezone.now()
+        alert.resolved_by = request.user
+        alert.ignored = False  # Clear ignored status if it was ignored
+        alert.save()
+
+        log_alert_resolved(alert.message, user=request.user, level=alert.level)
+        
+        return Response({
+            'success': True,
+            'message': 'Alert resolved successfully'
+        }, status=status.HTTP_200_OK)
+    except Alert.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Alert not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@authentication_classes([CookieOAuth2Authentication])
+@permission_classes([IsAuthenticated])
+def ignore_alert(request, alert_id):
+    
+    from .models import Alert
+    from .logging_utils import log_alert_ignored
+    from django.utils import timezone
+    
+    try:
+        alert = Alert.objects.get(id=alert_id)
+        alert.ignored = True
+        alert.ignored_at = timezone.now()
+        alert.ignored_by = request.user
+        alert.save()
+
+        log_alert_ignored(alert.message, user=request.user, level=alert.level)
+        
+        return Response({
+            'success': True,
+            'message': 'Alert ignored successfully'
+        }, status=status.HTTP_200_OK)
+    except Alert.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Alert not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+@authentication_classes([CookieOAuth2Authentication])
+@permission_classes([IsAuthenticated])
+def unignore_alert(request, alert_id):
+    
+    from .models import Alert
+    from .logging_utils import log_alert_unignored
+    
+    try:
+        alert = Alert.objects.get(id=alert_id)
+        alert.ignored = False
+        alert.ignored_at = None
+        alert.ignored_by = None
+        alert.save()
+
+        log_alert_unignored(alert.message, user=request.user, level=alert.level)
+        
+        return Response({
+            'success': True,
+            'message': 'Alert removed from blacklist'
+        }, status=status.HTTP_200_OK)
+    except Alert.DoesNotExist:
+        return Response({
+            'success': False,
+            'error': 'Alert not found'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@authentication_classes([CookieOAuth2Authentication])
+@permission_classes([IsAuthenticated])
+def ignored_alerts(request):
+    
+    from .models import Alert
+    
+    try:
+
+        alerts = Alert.objects.filter(ignored=True).order_by('-ignored_at')
+        
+        result = []
+        for alert in alerts:
+            result.append({
+                'id': alert.id,
+                'message': alert.message,
+                'level': alert.level,
+                'created_at': alert.created_at.isoformat(),
+                'ignored_at': alert.ignored_at.isoformat() if alert.ignored_at else None,
+                'ignored_by': alert.ignored_by.username if alert.ignored_by else None
+            })
+        
+        return Response({'alerts': result}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

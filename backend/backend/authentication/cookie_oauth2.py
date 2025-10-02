@@ -6,7 +6,7 @@ import pathlib
 
 class CookieOAuth2Authentication(BaseAuthentication):
     def authenticate(self, request):
-        # Read server_id directly from serverid.dat file
+
         server_id_path = (pathlib.Path(__file__).parent.parent / "dashboard" / "serverid.dat").resolve()
         try:
             server_id = server_id_path.read_text().strip()

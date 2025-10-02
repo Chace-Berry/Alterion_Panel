@@ -2,6 +2,9 @@ from django.db import models
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
+# Import Node models
+from .node_models import Node, NodeMetrics, NodeAlert, NodeService
+
 class FTPAccount(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     username = models.CharField(max_length=100, unique=True)

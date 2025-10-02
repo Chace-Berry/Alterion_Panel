@@ -10,12 +10,12 @@ User = get_user_model()
 
 
 class WidgetLayoutView(APIView):
-    """API for managing user widget layouts"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Get user's widget layout"""
+        
         try:
             widget_layout = WidgetLayout.objects.get(user=request.user)
             return Response({
@@ -23,7 +23,7 @@ class WidgetLayoutView(APIView):
                 'available_widgets': widget_layout.available_widgets
             })
         except WidgetLayout.DoesNotExist:
-            # Return default layout if none exists
+
             default_layout = [
                 {'i': 'alerts', 'x': 0, 'y': 0, 'w': 4, 'h': 3, 'minW': 3, 'minH': 2},
                 {'i': 'traffic', 'x': 4, 'y': 0, 'w': 4, 'h': 3, 'minW': 3, 'minH': 2},
@@ -39,15 +39,13 @@ class WidgetLayoutView(APIView):
             })
 
     def post(self, request):
-        """Save user's widget layout"""
+        
         layout = request.data.get('layout', [])
         available_widgets = request.data.get('available_widgets', [])
 
-        # Debug: Check what we're getting
         print(f"DEBUG: request.user = {request.user}, type = {type(request.user)}")
         print(f"DEBUG: User model = {User}")
-        
-        # Get the user ID directly to avoid any model instance issues
+
         try:
             if isinstance(request.user, str):
                 user_obj = User.objects.get(username=request.user)
@@ -55,13 +53,13 @@ class WidgetLayoutView(APIView):
             elif hasattr(request.user, 'pk'):
                 user_id = request.user.pk
                 print(f"DEBUG: Got user_id from pk: {user_id}")
-                # Verify user exists and fetch fresh instance
+
                 user_obj = User.objects.get(pk=user_id)
                 print(f"DEBUG: Fetched user_obj type: {type(user_obj)}, isinstance check: {isinstance(user_obj, User)}")
             elif hasattr(request.user, 'id'):
                 user_id = request.user.id
                 print(f"DEBUG: Got user_id from id: {user_id}")
-                # Verify user exists
+
                 user_obj = User.objects.get(pk=user_id)
             else:
                 user_obj = User.objects.get(username=str(request.user))
@@ -79,7 +77,6 @@ class WidgetLayoutView(APIView):
                 'error': f'Authentication error: {str(e)}'
             }, status=status.HTTP_401_UNAUTHORIZED)
 
-        # Use user_id for queries to avoid the "Must be User instance" error
         try:
             widget_layout = WidgetLayout.objects.get(user_id=user_id)
             widget_layout.layout = layout
@@ -87,7 +84,7 @@ class WidgetLayoutView(APIView):
             widget_layout.save()
         except WidgetLayout.DoesNotExist:
             print(f"DEBUG: Creating new WidgetLayout with user_id={user_id}")
-            # For creation, use the user object instead of user_id
+
             widget_layout = WidgetLayout.objects.create(
                 user=user_obj,
                 layout=layout,
@@ -101,12 +98,12 @@ class WidgetLayoutView(APIView):
 
 
 class WidgetLibraryView(APIView):
-    """API for managing widget library (available widgets)"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Get all available widgets from library"""
+        
         try:
             widget_layout = WidgetLayout.objects.get(user=request.user)
             return Response({
@@ -118,7 +115,7 @@ class WidgetLibraryView(APIView):
             })
 
     def post(self, request):
-        """Add a widget to the library (remove from dashboard)"""
+        
         widget_id = request.data.get('widget_id')
         widget_config = request.data.get('widget_config', {})
 
@@ -135,7 +132,6 @@ class WidgetLibraryView(APIView):
             }
         )
 
-        # Add to available widgets if not already there
         available = widget_layout.available_widgets
         if not any(w.get('id') == widget_id for w in available):
             available.append({
@@ -151,7 +147,7 @@ class WidgetLibraryView(APIView):
         }, status=status.HTTP_200_OK)
 
     def delete(self, request):
-        """Remove a widget from library (add back to dashboard)"""
+        
         widget_id = request.data.get('widget_id')
 
         if not widget_id:
@@ -161,7 +157,7 @@ class WidgetLibraryView(APIView):
 
         try:
             widget_layout = WidgetLayout.objects.get(user=request.user)
-            # Remove from available widgets
+
             widget_layout.available_widgets = [
                 w for w in widget_layout.available_widgets 
                 if w.get('id') != widget_id

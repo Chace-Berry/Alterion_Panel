@@ -1,7 +1,4 @@
-"""
-Widget Data API Views
-Provides endpoints for fetching widget-specific data
-"""
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -15,11 +12,11 @@ from .alert_system import AlertSystem
 
 
 class AlertsWidgetView(APIView):
-    """API endpoint for Alerts widget data - comprehensive dynamic alert system"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     
     def get(self, request):
-        # Use the comprehensive alert system
+
         alert_system = AlertSystem()
         alerts = alert_system.get_all_alerts()
         
@@ -27,11 +24,11 @@ class AlertsWidgetView(APIView):
 
 
 class TrafficWidgetView(APIView):
-    """API endpoint for Traffic widget data"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     
     def get(self, request):
-        # Mock traffic data - replace with actual analytics
+
         traffic_data = {
             'current_visitors': random.randint(50, 500),
             'today_visitors': random.randint(1000, 5000),
@@ -50,42 +47,94 @@ class TrafficWidgetView(APIView):
 
 
 class UptimeWidgetView(APIView):
-    """API endpoint for Uptime Monitor widget data"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     
     def get(self, request):
-        # Mock uptime data - replace with actual monitoring
-        uptime_data = {
-            'uptime_percentage': 99.98,
-            'current_status': 'online',
-            'last_downtime': (timezone.now() - timedelta(days=7)).isoformat(),
-            'response_time': random.randint(50, 200),  # ms
-            'incidents_30d': random.randint(0, 3)
-        }
-        return Response(uptime_data)
+        from .uptime_monitor import UptimeMonitorService
+        
+        try:
+
+            monitor = UptimeMonitorService()
+
+            from .models import UptimeCheck
+            last_check = UptimeCheck.objects.filter(server=monitor.server).first()
+            if not last_check or (timezone.now() - last_check.timestamp).total_seconds() > 600:
+                monitor.perform_check()
+
+            stats = monitor.get_uptime_stats(days=30)
+            current_status = monitor.get_current_status()
+            system_uptime = monitor.get_system_uptime()
+            last_incident = monitor.get_last_incident_time()
+            daily_history = monitor.get_daily_uptime_history(days=30)
+            
+            uptime_data = {
+                'currentUptime': system_uptime,
+                'uptimePercentage': stats['uptime_percentage'],
+                'lastIncident': last_incident,
+                'responseTime': int(stats['avg_response_time']),
+                'status': current_status['status'],
+                'totalChecks': stats['total_checks'],
+                'successfulChecks': stats['successful_checks'],
+                'incidentsCount': stats['incidents_count'],
+                'totalDowntimeMinutes': stats['total_downtime_minutes'],
+                'dailyHistory': daily_history,
+                'lastCheck': current_status['last_check'].isoformat() if current_status['last_check'] else None
+            }
+            
+            return Response(uptime_data)
+            
+        except Exception as e:
+
+            import time
+            
+            try:
+                boot_time = psutil.boot_time()
+                uptime_seconds = time.time() - boot_time
+                days = int(uptime_seconds // 86400)
+                hours = int((uptime_seconds % 86400) // 3600)
+                minutes = int((uptime_seconds % 3600) // 60)
+                
+                fallback_data = {
+                    'currentUptime': f"{days}d {hours}h {minutes}m",
+                    'uptimePercentage': 99.9,
+                    'lastIncident': 'Never',
+                    'responseTime': 50,
+                    'status': 'operational',
+                    'error': str(e)
+                }
+            except:
+                fallback_data = {
+                    'currentUptime': '0d 0h 0m',
+                    'uptimePercentage': 100.0,
+                    'lastIncident': 'Never',
+                    'responseTime': 0,
+                    'status': 'operational',
+                    'error': str(e)
+                }
+            
+            return Response(fallback_data)
 
 
 class PerformanceWidgetView(APIView):
-    """API endpoint for Performance Metrics widget data - real system metrics"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     
     def get(self, request):
-        # Get real system performance data
+
         cpu_percent = psutil.cpu_percent(interval=1)
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
         net_io = psutil.net_io_counters()
-        
-        # Calculate network speed (bytes per second to Mbps)
-        # Note: This is cumulative, you'd need to track deltas for real-time speed
+
+
         network_in_mbps = round((net_io.bytes_recv / 1024 / 1024), 2)
         network_out_mbps = round((net_io.bytes_sent / 1024 / 1024), 2)
-        
-        # Get load average (Unix-like systems only)
+
         try:
             load_avg = psutil.getloadavg()[0]  # 1-minute load average
         except (AttributeError, OSError):
-            # Load average not available on Windows
+
             load_avg = cpu_percent / 100
         
         performance_data = {
@@ -107,11 +156,11 @@ class PerformanceWidgetView(APIView):
 
 
 class QuickActionsWidgetView(APIView):
-    """API endpoint for Quick Actions widget data"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     
     def get(self, request):
-        # Available quick actions
+
         actions = [
             {'id': 'restart_server', 'label': 'Restart Server', 'icon': 'power'},
             {'id': 'clear_cache', 'label': 'Clear Cache', 'icon': 'trash'},
@@ -121,9 +170,9 @@ class QuickActionsWidgetView(APIView):
         return Response({'actions': actions})
     
     def post(self, request):
-        # Execute quick action
+
         action_id = request.data.get('action_id')
-        # TODO: Implement actual action execution
+
         return Response({
             'success': True,
             'message': f'Action {action_id} executed successfully'
@@ -131,11 +180,11 @@ class QuickActionsWidgetView(APIView):
 
 
 class ActivityWidgetView(APIView):
-    """API endpoint for Recent Activity widget data"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     
     def get(self, request):
-        # Mock activity data - replace with actual activity logs
+
         activities = [
             {
                 'id': 1,
@@ -170,11 +219,11 @@ class ActivityWidgetView(APIView):
 
 
 class DomainExpiryWidgetView(APIView):
-    """API endpoint for Domain Expiry widget data"""
+    
     authentication_classes = [CookieOAuth2Authentication]
     
     def get(self, request):
-        # Mock domain data - replace with actual domain monitoring
+
         domains = [
             {
                 'domain': 'example.com',
@@ -199,3 +248,128 @@ class DomainExpiryWidgetView(APIView):
             }
         ]
         return Response({'domains': domains})
+
+
+class NodeWidgetProxyView(APIView):
+    
+    authentication_classes = [CookieOAuth2Authentication]
+    
+    def get(self, request, node_id, widget_type):
+        from services.models import Node
+        import subprocess
+        import json
+        
+        try:
+            node = Node.objects.get(id=node_id, owner=request.user)
+        except Node.DoesNotExist:
+            return Response(
+                {'error': 'Node not found or access denied'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if node.status != 'online':
+            return Response(
+                {'error': f'Node is {node.status}', 'node_status': node.status},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+
+        try:
+
+            cmd = [
+                'ssh',
+                '-i', node.auth_key,
+                '-p', str(node.port),
+                '-o', 'StrictHostKeyChecking=no',
+                '-o', 'ConnectTimeout=10',
+                f'{node.username}@{node.ip_address}',
+                'python3', '/usr/local/bin/node_agent.py', 'collect_metrics'
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode != 0:
+                return Response(
+                    {'error': 'Failed to collect node data', 'details': result.stderr},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            metrics = json.loads(result.stdout)
+
+            widget_data = self._transform_metrics_for_widget(widget_type, metrics)
+            return Response(widget_data)
+            
+        except subprocess.TimeoutExpired:
+            return Response(
+                {'error': 'Connection timeout'},
+                status=status.HTTP_504_GATEWAY_TIMEOUT
+            )
+        except json.JSONDecodeError:
+            return Response(
+                {'error': 'Invalid response from node'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _transform_metrics_for_widget(self, widget_type, metrics):
+        
+        
+        if widget_type == 'alerts':
+
+            alerts = []
+            system_info = metrics.get('system_info', {})
+
+            cpu_percent = metrics.get('cpu', {}).get('percent', 0)
+            if cpu_percent > 80:
+                alerts.append({
+                    'type': 'critical' if cpu_percent > 90 else 'warning',
+                    'message': f'High CPU usage: {cpu_percent:.1f}%',
+                    'timestamp': timezone.now().isoformat()
+                })
+
+            memory = metrics.get('memory', {})
+            memory_percent = memory.get('percent', 0)
+            if memory_percent > 80:
+                alerts.append({
+                    'type': 'critical' if memory_percent > 90 else 'warning',
+                    'message': f'High memory usage: {memory_percent:.1f}%',
+                    'timestamp': timezone.now().isoformat()
+                })
+
+            for disk in metrics.get('disk', []):
+                percent = disk.get('percent', 0)
+                if percent > 85:
+                    alerts.append({
+                        'type': 'critical' if percent > 95 else 'warning',
+                        'message': f'High disk usage on {disk.get("mountpoint", "disk")}: {percent:.1f}%',
+                        'timestamp': timezone.now().isoformat()
+                    })
+            
+            return {'alerts': alerts}
+        
+        elif widget_type == 'performance':
+            return {
+                'cpu_usage': metrics.get('cpu', {}).get('percent', 0),
+                'memory_usage': metrics.get('memory', {}).get('percent', 0),
+                'disk_usage': max([d.get('percent', 0) for d in metrics.get('disk', [])], default=0) if metrics.get('disk') else 0,
+                'uptime': metrics.get('system_info', {}).get('boot_time', '')
+            }
+        
+        elif widget_type == 'uptime':
+            boot_time = metrics.get('system_info', {}).get('boot_time', '')
+            return {
+                'uptime': boot_time,
+                'status': 'online'
+            }
+        
+        else:
+
+            return metrics

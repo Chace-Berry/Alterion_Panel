@@ -4,12 +4,15 @@ from .views import (
     EmailAccountViewSet, ServiceStatusViewSet
 )
 from .views import manage_service
+from .node_views import NodeViewSet, NodeAlertViewSet
 
 router = DefaultRouter()
 router.register(r'ftp', FTPAccountViewSet)
 router.register(r'databases', DatabaseViewSet)
 router.register(r'emails', EmailAccountViewSet)
 router.register(r'services', ServiceStatusViewSet)
+router.register(r'nodes', NodeViewSet, basename='node')
+router.register(r'node-alerts', NodeAlertViewSet, basename='node-alert')
 
 urlpatterns = router.urls
 

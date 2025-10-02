@@ -1,7 +1,4 @@
-"""
-Comprehensive Alert System
-Dynamically monitors system metrics and generates alerts based on intelligent thresholds
-"""
+
 import psutil
 import platform
 import os
@@ -13,10 +10,7 @@ import shutil
 
 
 class AlertSystem:
-    """
-    Main alert system that monitors various aspects of the system
-    and generates alerts with dynamic thresholds
-    """
+    
     
     def __init__(self):
         self.cpu_count = psutil.cpu_count()
@@ -24,7 +18,7 @@ class AlertSystem:
         self.alerts = []
         
     def add_alert(self, alert_type, severity, message, metric, value, category, details=None):
-        """Add an alert to the list with optional detailed information"""
+        
         alert = {
             'id': f'{category}_{metric}_{int(datetime.now().timestamp())}',
             'type': severity,
@@ -35,31 +29,40 @@ class AlertSystem:
             'value': value,
             'category': category
         }
-        
-        # Add detailed information if provided
+
         if details:
             alert['details'] = details
         
         self.alerts.append(alert)
     
     def check_system_resources(self):
-        """Check CPU, memory, disk, swap, and load average"""
         
-        # CPU - Check for sustained usage and find top processes
+
         cpu_percent = psutil.cpu_percent(interval=2)
         per_cpu = psutil.cpu_percent(interval=1, percpu=True)
-        
-        # Find top CPU consuming processes
+
         top_procs = []
+
+        ignore_processes = {'System Idle Process', 'System', 'Idle'}
+        
         for p in psutil.process_iter(['pid', 'name', 'cpu_percent']):
             try:
+                process_name = p.info.get('name', '')
+
+                if process_name in ignore_processes:
+                    continue
+                    
                 cpu_usage = p.info.get('cpu_percent', 0) or 0
-                if cpu_usage > 0:
-                    top_procs.append((p.info['name'], p.info['pid'], cpu_usage))
+
+                cpu_usage_normalized = cpu_usage / self.cpu_count
+
+                cpu_usage_normalized = min(cpu_usage_normalized, 100.0)
+                
+                if cpu_usage_normalized > 0.1:  # Only include processes using more than 0.1% CPU
+                    top_procs.append((process_name, p.info['pid'], cpu_usage_normalized))
             except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                 continue
-        
-        # Sort by CPU usage and get top 5
+
         top_procs = sorted(top_procs, key=lambda x: x[2], reverse=True)[:5]
         
         top_cpu_info = [
@@ -87,8 +90,7 @@ class AlertSystem:
             self.add_alert('system_resources', 'warning',
                           f'High CPU usage: {cpu_percent:.1f}%',
                           'cpu', cpu_percent, 'system_resources', details)
-        
-        # Memory - Find top memory consuming processes
+
         memory = psutil.virtual_memory()
         top_mem_procs = []
         for p in psutil.process_iter(['pid', 'name', 'memory_percent']):
@@ -98,8 +100,7 @@ class AlertSystem:
                     top_mem_procs.append((p.info['name'], p.info['pid'], mem_usage))
             except (psutil.NoSuchProcess, psutil.AccessDenied, KeyError):
                 continue
-        
-        # Sort by memory usage and get top 5
+
         top_mem_procs = sorted(top_mem_procs, key=lambda x: x[2], reverse=True)[:5]
         
         top_mem_info = [
@@ -129,8 +130,7 @@ class AlertSystem:
             self.add_alert('system_resources', 'warning',
                           f'High memory usage: {memory.percent:.1f}%',
                           'memory', memory.percent, 'system_resources', details)
-        
-        # Disk Usage - Check all partitions
+
         for partition in psutil.disk_partitions():
             try:
                 usage = psutil.disk_usage(partition.mountpoint)
@@ -144,8 +144,7 @@ class AlertSystem:
                                   'disk', usage.percent, 'storage_filesystem')
             except (PermissionError, OSError):
                 continue
-        
-        # Swap Usage
+
         swap = psutil.swap_memory()
         if swap.percent > 80:
             self.add_alert('system_resources', 'critical',
@@ -155,8 +154,7 @@ class AlertSystem:
             self.add_alert('system_resources', 'warning',
                           f'High swap usage: {swap.percent:.1f}%',
                           'swap', swap.percent, 'system_resources')
-        
-        # Load Average (dynamic based on CPU cores)
+
         try:
             load_avg = psutil.getloadavg()[0]
             critical_threshold = self.cpu_count * 2
@@ -172,8 +170,7 @@ class AlertSystem:
                               'load', load_avg, 'system_resources')
         except (AttributeError, OSError):
             pass
-        
-        # I/O Wait (Unix-like systems)
+
         if self.system != 'Windows':
             try:
                 cpu_times = psutil.cpu_times_percent(interval=1)
@@ -190,34 +187,39 @@ class AlertSystem:
                 pass
     
     def check_processes_services(self):
-        """Check for zombie processes, runaway processes, and file descriptors"""
+        
         
         zombie_count = 0
         runaway_procs = []
         total_fds = 0
-        
-        # Define attrs based on platform
+
         attrs = ['pid', 'name', 'status', 'cpu_percent']
         if self.system != 'Windows':
             attrs.append('num_fds')
+
+        ignore_processes = {'System Idle Process', 'System', 'Idle'}
         
         for proc in psutil.process_iter(attrs):
             try:
-                # Check for zombie processes
+                process_name = proc.info.get('name', '')
+
                 if proc.info['status'] == psutil.STATUS_ZOMBIE:
                     zombie_count += 1
-                
-                # Check for runaway processes (>90% CPU sustained)
-                if proc.info['cpu_percent'] and proc.info['cpu_percent'] > 90:
-                    runaway_procs.append((proc.info['name'], proc.info['cpu_percent'], proc.info['pid']))
-                
-                # Count file descriptors (Unix-like only)
+
+                if proc.info['cpu_percent']:
+
+                    cpu_normalized = proc.info['cpu_percent'] / self.cpu_count
+
+                    cpu_normalized = min(cpu_normalized, 100.0)
+
+                    if cpu_normalized > 90 and process_name not in ignore_processes:
+                        runaway_procs.append((process_name, cpu_normalized, proc.info['pid']))
+
                 if self.system != 'Windows' and proc.info.get('num_fds'):
                     total_fds += proc.info['num_fds']
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
-        
-        # Zombie process alerts
+
         if zombie_count > 20:
             details = {
                 'zombie_count': zombie_count,
@@ -236,8 +238,7 @@ class AlertSystem:
             self.add_alert('process_service', 'warning',
                           f'{zombie_count} zombie processes detected',
                           'zombies', zombie_count, 'process_service', details)
-        
-        # Runaway process alerts
+
         for proc_name, cpu, pid in runaway_procs:
             details = {
                 'process_name': proc_name,
@@ -249,8 +250,7 @@ class AlertSystem:
             self.add_alert('process_service', 'critical',
                           f'Runaway process: {proc_name} using {cpu:.1f}% CPU',
                           'runaway_process', cpu, 'process_service', details)
-        
-        # File descriptor limits (Unix-like)
+
         if self.system != 'Windows':
             try:
                 import resource
@@ -267,8 +267,7 @@ class AlertSystem:
                                   'file_descriptors', fd_percent, 'process_service')
             except:
                 pass
-        
-        # Check process count (fork bomb detection)
+
         proc_count = len(psutil.pids())
         if proc_count > 1000:
             details = {
@@ -290,9 +289,8 @@ class AlertSystem:
                           'process_count', proc_count, 'security', details)
     
     def check_network(self):
-        """Check network interfaces, traffic, and packet errors"""
         
-        # Virtual adapter patterns to ignore
+
         virtual_patterns = [
             'Local Area Connection*',  # Windows virtual adapters
             'Bluetooth Network',       # Bluetooth network connections
@@ -302,18 +300,17 @@ class AlertSystem:
             'Loopback',               # Loopback interface
             'lo'                      # Linux loopback
         ]
-        
-        # Check network interfaces
+
         net_if_stats = psutil.net_if_stats()
         net_if_addrs = psutil.net_if_addrs()
         
         for interface, stats in net_if_stats.items():
-            # Skip virtual adapters
+
             if any(pattern in interface for pattern in virtual_patterns):
                 continue
                 
             if not stats.isup:
-                # Get interface details
+
                 addrs = net_if_addrs.get(interface, [])
                 ip_info = ', '.join([addr.address for addr in addrs if addr.family == 2])  # AF_INET
                 
@@ -329,8 +326,7 @@ class AlertSystem:
                 self.add_alert('network', severity,
                               f'Network interface {interface} is down',
                               'interface_down', 0, 'network', details)
-        
-        # Check packet errors
+
         net_io = psutil.net_io_counters()
         total_packets = net_io.packets_sent + net_io.packets_recv
         if total_packets > 0:
@@ -362,7 +358,7 @@ class AlertSystem:
                               'packet_errors', error_percent, 'network', details)
     
     def check_hardware_temperature(self):
-        """Check CPU, GPU, and disk temperatures"""
+        
         
         try:
             temps = psutil.sensors_temperatures()
@@ -379,8 +375,7 @@ class AlertSystem:
                                           'temperature', entry.current, 'hardware_environment')
         except (AttributeError, OSError):
             pass
-        
-        # Check fan speeds
+
         try:
             fans = psutil.sensors_fans()
             if fans:
@@ -396,8 +391,7 @@ class AlertSystem:
                                       'fan_failure', failed_fans, 'hardware_environment')
         except (AttributeError, OSError):
             pass
-        
-        # Check battery status
+
         try:
             battery = psutil.sensors_battery()
             if battery:
@@ -413,17 +407,16 @@ class AlertSystem:
             pass
     
     def check_security(self):
-        """Check for security-related issues"""
         
-        # Check for failed SSH attempts (Unix-like systems)
+
         if self.system != 'Windows':
             try:
-                # Check auth log for failed SSH attempts
+
                 auth_log = '/var/log/auth.log' if os.path.exists('/var/log/auth.log') else '/var/log/secure'
                 if os.path.exists(auth_log):
                     failed_count = 0
-                    # Count failed attempts in last 10 minutes
-                    # Note: This is a simplified check, would need proper log parsing
+
+
                     self.add_alert('security', 'info',
                                   'SSH monitoring active',
                                   'ssh_monitor', 0, 'security')
@@ -431,7 +424,7 @@ class AlertSystem:
                 pass
     
     def get_all_alerts(self):
-        """Run all checks and return alerts"""
+        
         self.alerts = []
         
         self.check_system_resources()
@@ -439,8 +432,7 @@ class AlertSystem:
         self.check_network()
         self.check_hardware_temperature()
         self.check_security()
-        
-        # If no alerts, system is healthy
+
         if not self.alerts:
             self.alerts.append({
                 'id': 'all_ok',
@@ -452,5 +444,36 @@ class AlertSystem:
                 'value': 0,
                 'category': 'system'
             })
+
+        filtered_alerts = self._filter_ignored_resolved_alerts(self.alerts)
         
-        return self.alerts
+        return filtered_alerts
+    
+    def _filter_ignored_resolved_alerts(self, alerts):
+        
+        try:
+            from .models import Alert, Server
+            from django.db import models
+
+            server = Server.objects.first()
+            if not server:
+                return alerts
+
+            db_alerts = Alert.objects.filter(
+                server=server
+            ).filter(
+                models.Q(ignored=True) | models.Q(resolved=True)
+            ).values_list('message', flat=True)
+            
+            ignored_messages = set(db_alerts)
+
+            filtered = [
+                alert for alert in alerts 
+                if alert['message'] not in ignored_messages
+            ]
+            
+            return filtered if filtered else alerts
+        except Exception as e:
+
+            print(f"[DEBUG] Error filtering ignored/resolved alerts: {e}")
+            return alerts
