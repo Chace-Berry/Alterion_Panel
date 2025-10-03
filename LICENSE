@@ -1,0 +1,57 @@
+Alterion Public-Use License 
+Copyright (c) 2025 Chace Berry. All Rights Reserved.
+
+This software, its source code, assets, documentation, and all associated intellectual property 
+(collectively, "Software") are the exclusive property of Chace Berry. 
+
+1. Ownership
+-------------
+All rights, title, and interest in the Software remain with Chace Berry. 
+No person or entity may claim ownership, redistribute, or resell the Software as their own.
+
+2. Permitted Use
+----------------
+You are granted permission to:
+- Use the Software for personal, educational, or non-commercial purposes.
+- Study and modify the Software for learning or research purposes.
+- Distribute modified or unmodified versions ONLY IF the derivative work is free and open-source.
+- Include attribution to Chace Berry as the original creator in any public or redistributed derivative work.
+  Suggested attribution:
+  "This software is based on work by Chace Berry (https://github.com/Chace-Berry)."
+
+3. Commercial Use
+-----------------
+If you incorporate any part of the Software into proprietary or commercial software:
+- You MUST compensate Chace Berry **30% of gross revenue** generated from that software.
+- Any failure to comply with this condition constitutes a violation of this license and may lead to legal action.
+
+4. Free Software Clause
+-----------------------
+- Any derivative work distributed publicly MUST remain free of charge.
+- You may NOT make any derivative work proprietary without entering a formal agreement with Chace Berry
+  that includes the 30% revenue share clause.
+
+5. Prohibited Use
+-----------------
+You may NOT:
+- Claim the Software or any derivative work as your own proprietary creation.
+- Remove, obscure, or alter the copyright and license notices in any copy or derivative.
+- Use the Software to create competing commercial products without complying with Section 3.
+
+6. Attribution Requirements
+---------------------------
+- All distributed versions of the Software, modified or unmodified, must clearly credit Chace Berry.
+- Credit must be displayed in source files, documentation, and user interfaces wherever reasonable.
+- Failure to attribute properly constitutes a breach of this license.
+
+7. Disclaimer of Warranty
+-------------------------
+- The Software is provided "as-is" without warranties of any kind, express or implied, including but not limited 
+  to warranties of merchantability, fitness for a particular purpose, or non-infringement.
+- Chace Berry is not liable for any damages, losses, or liabilities arising from the use of the Software.
+
+8. Enforcement
+--------------
+- Violations of this license, including failure to comply with attribution or revenue sharing,
+  may result in legal action.
+- This license is governed by the laws of South Africa, and disputes will be resolved under South African jurisdiction.
