@@ -18,6 +18,14 @@ django-oauth-toolkit
 PyJWT
 gunicorn
 drf-yasg
+whitenoise
+uvicorn
+requests
+python-dateutil
+cryptography
+bcrypt
+python-whois
+dnspython
 django-redis
 python-decouple
 django-cors-headers

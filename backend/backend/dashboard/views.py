@@ -666,30 +666,86 @@ def available_servers(request):
 @authentication_classes([CookieOAuth2Authentication])
 @permission_classes([IsAuthenticated])
 def resolve_alert(request, alert_id):
-    
+    from rest_framework.response import Response
     from .models import Alert
     from .logging_utils import log_alert_resolved
     from django.utils import timezone
     
+    # Try to parse as integer for database alerts
     try:
-        alert = Alert.objects.get(id=alert_id)
-        alert.resolved = True
-        alert.resolved_at = timezone.now()
-        alert.resolved_by = request.user
-        alert.ignored = False  # Clear ignored status if it was ignored
-        alert.save()
+        alert_id_int = int(alert_id)
+        try:
+            alert = Alert.objects.get(id=alert_id_int)
+            alert.resolved = True
+            alert.resolved_at = timezone.now()
+            alert.resolved_by = request.user
+            alert.ignored = False  # Clear ignored status if it was ignored
+            alert.save()
 
-        log_alert_resolved(alert.message, user=request.user, level=alert.level)
-        
-        return Response({
-            'success': True,
-            'message': 'Alert resolved successfully'
-        }, status=status.HTTP_200_OK)
-    except Alert.DoesNotExist:
-        return Response({
-            'success': False,
-            'error': 'Alert not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            log_alert_resolved(alert.message, user=request.user, level=alert.level)
+            
+            return Response({
+                'success': True,
+                'message': 'Alert resolved successfully'
+            }, status=status.HTTP_200_OK)
+        except Alert.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Alert not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+    except ValueError:
+        # This is a dynamic alert from AlertSystem
+        # Create a database record so it will be filtered out
+        try:
+            from .models import Server
+            
+            alert_message = request.data.get('message')
+            alert_level = request.data.get('level', 'warning')
+            
+            if not alert_message:
+                return Response({
+                    'success': False,
+                    'error': 'Alert message is required for dynamic alerts'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            server = Server.objects.first()
+            if not server:
+                return Response({
+                    'success': False,
+                    'error': 'No server found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Create or get the alert record
+            alert, created = Alert.objects.get_or_create(
+                server=server,
+                message=alert_message,
+                defaults={
+                    'level': alert_level,
+                    'resolved': True,
+                    'resolved_at': timezone.now(),
+                    'resolved_by': request.user
+                }
+            )
+            
+            # If it already exists, update it
+            if not created:
+                alert.resolved = True
+                alert.resolved_at = timezone.now()
+                alert.resolved_by = request.user
+                alert.ignored = False
+                alert.save()
+
+            log_alert_resolved(alert_message, user=request.user, level=alert_level)
+            
+            return Response({
+                'success': True,
+                'message': 'Dynamic alert resolved successfully'
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'Failed to resolve dynamic alert: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     except Exception as e:
         return Response({
             'success': False,
@@ -701,29 +757,84 @@ def resolve_alert(request, alert_id):
 @authentication_classes([CookieOAuth2Authentication])
 @permission_classes([IsAuthenticated])
 def ignore_alert(request, alert_id):
-    
-    from .models import Alert
+    from rest_framework.response import Response
+    from .models import Alert, Server
     from .logging_utils import log_alert_ignored
     from django.utils import timezone
     
+    # Try to parse as integer for database alerts
     try:
-        alert = Alert.objects.get(id=alert_id)
-        alert.ignored = True
-        alert.ignored_at = timezone.now()
-        alert.ignored_by = request.user
-        alert.save()
+        alert_id_int = int(alert_id)
+        try:
+            alert = Alert.objects.get(id=alert_id_int)
+            alert.ignored = True
+            alert.ignored_at = timezone.now()
+            alert.ignored_by = request.user
+            alert.save()
 
-        log_alert_ignored(alert.message, user=request.user, level=alert.level)
-        
-        return Response({
-            'success': True,
-            'message': 'Alert ignored successfully'
-        }, status=status.HTTP_200_OK)
-    except Alert.DoesNotExist:
-        return Response({
-            'success': False,
-            'error': 'Alert not found'
-        }, status=status.HTTP_404_NOT_FOUND)
+            log_alert_ignored(alert.message, user=request.user, level=alert.level)
+            
+            return Response({
+                'success': True,
+                'message': 'Alert ignored successfully'
+            }, status=status.HTTP_200_OK)
+        except Alert.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Alert not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+    except ValueError:
+        # This is a dynamic alert from AlertSystem (string ID like "storage_filesystem_disk_1759428134")
+        # Create a database record so it will be filtered out in future requests
+        try:
+            # Get the alert message from request body
+            alert_message = request.data.get('message')
+            alert_level = request.data.get('level', 'warning')
+            
+            if not alert_message:
+                return Response({
+                    'success': False,
+                    'error': 'Alert message is required for dynamic alerts'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get the first server (or create logic to determine which server)
+            server = Server.objects.first()
+            if not server:
+                return Response({
+                    'success': False,
+                    'error': 'No server found'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Create or get the alert record
+            alert, created = Alert.objects.get_or_create(
+                server=server,
+                message=alert_message,
+                defaults={
+                    'level': alert_level,
+                    'ignored': True,
+                    'ignored_at': timezone.now(),
+                    'ignored_by': request.user
+                }
+            )
+            
+            # If it already exists, update it
+            if not created:
+                alert.ignored = True
+                alert.ignored_at = timezone.now()
+                alert.ignored_by = request.user
+                alert.save()
+
+            log_alert_ignored(alert_message, user=request.user, level=alert_level)
+            
+            return Response({
+                'success': True,
+                'message': 'Dynamic alert ignored successfully'
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'Failed to ignore dynamic alert: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     except Exception as e:
         return Response({
             'success': False,
@@ -735,28 +846,37 @@ def ignore_alert(request, alert_id):
 @authentication_classes([CookieOAuth2Authentication])
 @permission_classes([IsAuthenticated])
 def unignore_alert(request, alert_id):
-    
+    from rest_framework.response import Response
     from .models import Alert
     from .logging_utils import log_alert_unignored
     
+    # Try to parse as integer for database alerts
     try:
-        alert = Alert.objects.get(id=alert_id)
-        alert.ignored = False
-        alert.ignored_at = None
-        alert.ignored_by = None
-        alert.save()
+        alert_id_int = int(alert_id)
+        try:
+            alert = Alert.objects.get(id=alert_id_int)
+            alert.ignored = False
+            alert.ignored_at = None
+            alert.ignored_by = None
+            alert.save()
 
-        log_alert_unignored(alert.message, user=request.user, level=alert.level)
-        
+            log_alert_unignored(alert.message, user=request.user, level=alert.level)
+            
+            return Response({
+                'success': True,
+                'message': 'Alert removed from blacklist'
+            }, status=status.HTTP_200_OK)
+        except Alert.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Alert not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+    except ValueError:
+        # This is a dynamic alert from AlertSystem
         return Response({
             'success': True,
-            'message': 'Alert removed from blacklist'
+            'message': 'Dynamic alert unignored'
         }, status=status.HTTP_200_OK)
-    except Alert.DoesNotExist:
-        return Response({
-            'success': False,
-            'error': 'Alert not found'
-        }, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({
             'success': False,

@@ -107,3 +107,30 @@ def log_config_change(config_type, change_description, user=None, details=None):
     
     message = f'{config_type} configuration: {change_description}'
     log_activity('config', message, user=user, details=details)
+
+def log_domain_added(domain_name, user=None, details=None):
+    
+    log_activity('domain', f'Domain added: {domain_name}', user=user, details=details)
+
+def log_domain_removed(domain_name, user=None, details=None):
+    
+    log_activity('domain', f'Domain removed: {domain_name}', user=user, details=details)
+
+def log_domain_updated(domain_name, user=None, details=None):
+    
+    log_activity('domain', f'Domain updated: {domain_name}', user=user, details=details)
+
+def log_domain_verified(domain_name, verification_method=None, user=None):
+    
+    details = {'verification_method': verification_method} if verification_method else None
+    log_activity('domain', f'Domain verified: {domain_name}', user=user, details=details)
+
+def log_domain_linked(domain_name, server_name, user=None):
+    
+    details = {'server': server_name}
+    log_activity('domain', f'Domain linked to server: {domain_name} → {server_name}', user=user, details=details)
+
+def log_domain_unlinked(domain_name, server_name, user=None):
+    
+    details = {'server': server_name}
+    log_activity('domain', f'Domain unlinked from server: {domain_name} ← {server_name}', user=user, details=details)

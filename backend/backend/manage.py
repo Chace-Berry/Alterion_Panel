@@ -36,14 +36,45 @@ def main():
 
 if __name__ == '__main__':
     import sys
-    # Always run with HTTPS on port 13527 using provided certs
+    # Always run with HTTPS on port 13527 using provided certs with WebSocket support
     if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] == 'runserver'):
-        # Use runserver_plus if available
+        # Use Uvicorn for full ASGI support (HTTP + WebSocket)
         try:
-            import django_extensions
-            sys.argv = [sys.argv[0], 'runserver_plus', '13527', '--cert-file', '../localhost.pem', '--key-file', '../localhost-key.pem']
-        except ImportError:
-            print("django-extensions not installed. Please install it for HTTPS support.")
+            import uvicorn
+            import django
+            
+            # Set up Django
+            os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
+            django.setup()
+            
+            # Get certificate paths
+            cert_dir = os.path.dirname(os.path.abspath(__file__))
+            ssl_keyfile = os.path.join(cert_dir, 'localhost-key.pem')
+            ssl_certfile = os.path.join(cert_dir, 'localhost.pem')
+            
+            print("=" * 70)
+            print("🚀 Starting Alterion Panel Server (Hot Reload Enabled)")
+            print("=" * 70)
+            print("HTTPS Server: https://localhost:13527/")
+            print("WebSocket: wss://localhost:13527/")
+            print("Hot Reload: Watching for file changes...")
+            print("=" * 70)
+            
+            # Run Uvicorn with SSL and hot reload
+            uvicorn.run(
+                "backend.asgi:application",
+                host="0.0.0.0",
+                port=13527,
+                ssl_keyfile=ssl_keyfile,
+                ssl_certfile=ssl_certfile,
+                reload=True,  # Enable hot reload
+                reload_dirs=[cert_dir],  # Watch the backend directory
+                log_level="info"
+            )
+        except ImportError as e:
+            print(f"Error: {e}")
+            print("Uvicorn not installed. Please install it: pip install uvicorn")
             sys.exit(1)
-    main()
+    else:
+        main()
 
