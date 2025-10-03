@@ -8,7 +8,7 @@
 
 <div align="center">
 
-[![License: APULv2.0](https://img.shields.io/badge/License-APULv2.0-blue.svg)]
+[![License: APULv2.0](https://img.shields.io/badge/License-APULv2.0-blue.svg)](https://github.com/Chace-Berry/Alterion_Panel/blob/master/LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/Django-4.2.7-092E20?style=flat&logo=django&logoColor=white)](https://www.djangoproject.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=black)](https://reactjs.org/)
