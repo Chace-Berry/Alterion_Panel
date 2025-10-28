@@ -11,6 +11,9 @@ from django.db.models import Q
 import subprocess
 import json
 import os
+from authentication.cookie_oauth2 import CookieOAuth2Authentication
+
+    # Removed stray import statement
 
 from .node_models import Node, NodeMetrics, NodeAlert, NodeService
 from .node_serializers import (
@@ -20,14 +23,311 @@ from .node_serializers import (
 
 
 class NodeViewSet(viewsets.ModelViewSet):
+
+    @action(detail=True, methods=['get'])
+    def verification_code(self, request, pk=None):
+        """Fetch the verification code for this node (for onboarding UI)"""
+        node = self.get_object()
+        # For demo: code is stored in node.notes
+        return Response({"code": node.notes.strip() if node.notes else ""})
+    authentication_classes = [CookieOAuth2Authentication]
+    @action(detail=True, methods=['post'])
+    def verify_code(self, request, pk=None):
+        """Verify the code sent by the node agent and entered by the user"""
+        node = self.get_object()
+        code = request.data.get('code')
+        if not code:
+            return Response({'error': 'Verification code required'}, status=status.HTTP_400_BAD_REQUEST)
+        # For demo: assume code is stored in node.notes (in production, use a secure field)
+        if code == node.notes.strip():
+            node.status = 'online'
+            node.save()
+            return Response({'verified': True})
+        else:
+            return Response({'verified': False, 'error': 'Invalid code'}, status=status.HTTP_400_BAD_REQUEST)
+    @action(detail=True, methods=['get'])
+    def install_progress(self, request, pk=None):
+        """Check installation progress/status for SSH onboarding (stub)"""
+        # In a real implementation, this would check a progress file, DB field, or agent status
+        # For now, return a stub response
+        return Response({
+            'status': 'installing',
+            'progress': 50,  # percent
+            'message': 'Installation in progress...'
+        })
+    @action(detail=False, methods=['post'])
+    def verify_ssh(self, request):
+        """Verify SSH credentials before onboarding"""
+        data = request.data
+        required_fields = ['ip_address', 'port', 'username', 'auth_key']
+        for field in required_fields:
+            if not data.get(field):
+                return Response({'error': f'Missing required field: {field}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        import tempfile
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.pem') as keyfile:
+                keyfile.write(data['auth_key'])
+                keyfile.flush()
+                keyfile_path = keyfile.name
+            ssh_cmd = [
+                'ssh',
+                '-i', keyfile_path,
+                '-o', 'StrictHostKeyChecking=no',
+                '-p', str(data['port']),
+                f"{data['username']}@{data['ip_address']}",
+                'echo verify-success'
+            ]
+            result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=10)
+            os.unlink(keyfile_path)
+            if result.returncode != 0 or 'verify-success' not in result.stdout:
+                return Response({'verified': False, 'error': result.stderr}, status=status.HTTP_200_OK)
+            return Response({'verified': True})
+        except Exception as e:
+            return Response({'verified': False, 'error': str(e)}, status=status.HTTP_200_OK)
+    @action(detail=False, methods=['post'])
+    def ssh_onboard(self, request):
+        """Onboard a node via SSH (create and verify connection)"""
+        data = request.data
+        required_fields = ['hostname', 'ip_address', 'port', 'username', 'auth_key']
+        for field in required_fields:
+            if not data.get(field):
+                return Response({'error': f'Missing required field: {field}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Try SSH connection
+        import tempfile
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.pem') as keyfile:
+                keyfile.write(data['auth_key'])
+                keyfile.flush()
+                keyfile_path = keyfile.name
+            # Build SSH command to test connection (simple 'echo' command)
+            ssh_cmd = [
+                'ssh',
+                '-i', keyfile_path,
+                '-o', 'StrictHostKeyChecking=no',
+                '-p', str(data['port']),
+                f"{data['username']}@{data['ip_address']}",
+                'echo onboard-success'
+            ]
+            result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
+            if result.returncode != 0 or 'onboard-success' not in result.stdout:
+                os.unlink(keyfile_path)
+                return Response({'error': f'SSH connection failed: {result.stderr}'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Use serverid as string id
+            serverid = data.get('serverid') or data.get('hostname') or data.get('ip_address')
+            # Ensure id is a string and tags is a valid JSON list
+            # Do not create the Node here. Node will be created on websocket connect.
+            node = None
+
+            # Copy node_agent.py and required files to remote server
+            import shutil
+
+            agent_files = [
+                os.path.abspath(os.path.join(os.path.dirname(__file__), '../../node_agent.py')),
+                os.path.abspath(os.path.join(os.path.dirname(__file__), '../../backend/node_crypto_utils.py')),
+                os.path.abspath(os.path.join(os.path.dirname(__file__), '../../backend/requirements.txt')),
+            ]
+            # Optionally add agent_private.pem, agent_public.pem if present
+            for fname in ['agent_private.pem', 'agent_public.pem']:
+                fpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../backend', fname))
+                if os.path.exists(fpath):
+                    agent_files.append(fpath)
+
+            # Create agent directory on remote
+            agent_dir = '~/alterion_agent'
+            mkdir_cmd = [
+                'ssh',
+                '-i', keyfile_path,
+                '-o', 'StrictHostKeyChecking=no',
+                '-p', str(data['port']),
+                f"{data['username']}@{data['ip_address']}",
+                f'mkdir -p {agent_dir}'
+            ]
+            subprocess.run(mkdir_cmd, capture_output=True, text=True, timeout=15)
+
+            # Copy files
+            for f in agent_files:
+                scp_cmd = [
+                    'scp',
+                    '-i', keyfile_path,
+                    '-P', str(data['port']),
+                    '-o', 'StrictHostKeyChecking=no',
+                    f,
+                    f"{data['username']}@{data['ip_address']}:{agent_dir}/"
+                ]
+                subprocess.run(scp_cmd, capture_output=True, text=True, timeout=30)
+
+
+
+
+
+            # Detect remote OS (simple check)
+            detect_os_cmd = [
+                'ssh',
+                '-i', keyfile_path,
+                '-o', 'StrictHostKeyChecking=no',
+                '-p', str(data['port']),
+                f"{data['username']}@{data['ip_address']}",
+                'uname || ver'
+            ]
+            os_result = subprocess.run(detect_os_cmd, capture_output=True, text=True, timeout=15)
+            remote_os = os_result.stdout.lower()
+
+            # Choose install script name and copy it as a fixed name on remote
+            if 'windows' in remote_os or 'microsoft' in remote_os or 'win' in remote_os:
+                install_script = 'install.bat'
+                remote_script = f'{agent_dir}/install.bat'
+                run_cmd = f'cd {agent_dir.replace("~", "%USERPROFILE%") } && call install.bat'
+            else:
+                install_script = 'install.sh'
+                remote_script = f'{agent_dir}/install.sh'
+                run_cmd = f'cd {agent_dir} && bash install.sh'
+
+            # Copy install script as fixed name
+            script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), f'../../backend/{install_script}'))
+            scp_cmd = [
+                'scp',
+                '-i', keyfile_path,
+                '-P', str(data['port']),
+                '-o', 'StrictHostKeyChecking=no',
+                script_path,
+                f"{data['username']}@{data['ip_address']}:{remote_script}"
+            ]
+            subprocess.run(scp_cmd, capture_output=True, text=True, timeout=30)
+
+            # Ensure script is executable (for Linux/macOS)
+            if not ('windows' in remote_os or 'microsoft' in remote_os or 'win' in remote_os):
+                chmod_cmd = [
+                    'ssh',
+                    '-i', keyfile_path,
+                    '-o', 'StrictHostKeyChecking=no',
+                    '-p', str(data['port']),
+                    f"{data['username']}@{data['ip_address']}",
+                    f'chmod +x {remote_script}'
+                ]
+                subprocess.run(chmod_cmd, capture_output=True, text=True, timeout=10)
+
+            # Start install and stream output to a progress file, with progress markers
+            progress_file = f'/tmp/alterion_install_{serverid}.log'
+            # Compose a wrapper script to echo progress markers
+            progress_steps = [
+                ('10', 'Creating venv'),
+                ('30', 'Upgrading pip/setuptools'),
+                ('60', 'Installing requirements.txt'),
+                ('90', 'Launching node agent'),
+                ('100', 'Installation complete!'),
+            ]
+            if 'windows' in remote_os or 'microsoft' in remote_os or 'win' in remote_os:
+                # Windows: use a .bat wrapper
+                wrapper_script = f"%TEMP%\\alterion_install_{serverid}.bat"
+                wrapper_lines = [
+                    f'@echo off',
+                    f'echo __PROGRESS__:10:Creating venv > {progress_file}',
+                    f'python -m venv venv >> {progress_file} 2>&1',
+                    f'echo __PROGRESS__:30:Upgrading pip/setuptools >> {progress_file}',
+                    f'call venv\\Scripts\\activate.bat >> {progress_file} 2>&1',
+                    f'python -m pip install --upgrade pip setuptools wheel >> {progress_file} 2>&1',
+                    f'echo __PROGRESS__:60:Installing requirements.txt >> {progress_file}',
+                    f'pip install -r requirements.txt >> {progress_file} 2>&1',
+                    f'echo __PROGRESS__:90:Launching node agent >> {progress_file}',
+                    f'python node_agent.py >> {progress_file} 2>&1',
+                    f'echo __PROGRESS__:100:Installation complete! >> {progress_file}',
+                    f'echo __INSTALL_DONE__ >> {progress_file}'
+                ]
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.bat') as batf:
+                    batf.write('\n'.join(wrapper_lines))
+                    batf.flush()
+                    wrapper_path = batf.name
+                # Copy wrapper to remote
+                scp_cmd = [
+                    'scp',
+                    '-i', keyfile_path,
+                    '-P', str(data['port']),
+                    '-o', 'StrictHostKeyChecking=no',
+                    wrapper_path,
+                    f"{data['username']}@{data['ip_address']}:{agent_dir}/alterion_install_{serverid}.bat"
+                ]
+                subprocess.run(scp_cmd, capture_output=True, text=True, timeout=30)
+                # Run wrapper in background
+                install_cmd = [
+                    'ssh',
+                    '-i', keyfile_path,
+                    '-o', 'StrictHostKeyChecking=no',
+                    '-p', str(data['port']),
+                    f"{data['username']}@{data['ip_address']}",
+                    f'cd {agent_dir.replace("~", "%USERPROFILE%") } && start /b alterion_install_{serverid}.bat'
+                ]
+                subprocess.run(install_cmd, capture_output=True, text=True, timeout=10)
+                os.unlink(wrapper_path)
+            else:
+                # Linux/macOS: use a .sh wrapper
+                wrapper_script = f"/tmp/alterion_install_{serverid}.sh"
+                wrapper_lines = [
+                    '#!/bin/bash',
+                    f'echo __PROGRESS__:10:Creating venv > {progress_file}',
+                    'python3 -m venv venv >> {progress_file} 2>&1',
+                    f'echo __PROGRESS__:30:Upgrading pip/setuptools >> {progress_file}',
+                    'source venv/bin/activate >> {progress_file} 2>&1',
+                    'python -m pip install --upgrade pip setuptools wheel >> {progress_file} 2>&1',
+                    f'echo __PROGRESS__:60:Installing requirements.txt >> {progress_file}',
+                    'pip install -r requirements.txt >> {progress_file} 2>&1',
+                    f'echo __PROGRESS__:90:Launching node agent >> {progress_file}',
+                    'python node_agent.py >> {progress_file} 2>&1',
+                    f'echo __PROGRESS__:100:Installation complete! >> {progress_file}',
+                    'echo __INSTALL_DONE__ >> {progress_file}'
+                ]
+                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.sh') as shf:
+                    shf.write('\n'.join(wrapper_lines))
+                    shf.flush()
+                    wrapper_path = shf.name
+                # Copy wrapper to remote
+                scp_cmd = [
+                    'scp',
+                    '-i', keyfile_path,
+                    '-P', str(data['port']),
+                    '-o', 'StrictHostKeyChecking=no',
+                    wrapper_path,
+                    f"{data['username']}@{data['ip_address']}:{agent_dir}/alterion_install_{serverid}.sh"
+                ]
+                subprocess.run(scp_cmd, capture_output=True, text=True, timeout=30)
+                # Run wrapper in background
+                install_cmd = [
+                    'ssh',
+                    '-i', keyfile_path,
+                    '-o', 'StrictHostKeyChecking=no',
+                    '-p', str(data['port']),
+                    f"{data['username']}@{data['ip_address']}",
+                    f'cd {agent_dir} && bash alterion_install_{serverid}.sh &'
+                ]
+                subprocess.run(install_cmd, capture_output=True, text=True, timeout=10)
+                os.unlink(wrapper_path)
+            os.unlink(keyfile_path)
+
+            return Response({'success': True, 'message': 'Agent install triggered. Node will be added on websocket connect.', 'progress_file': progress_file, 'serverid': serverid})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     """
     ViewSet for managing remote nodes/servers
     """
     serializer_class = NodeSerializer
+    authentication_classes = [CookieOAuth2Authentication]
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        return Node.objects.filter(owner=self.request.user)
+        queryset = Node.objects.filter(owner=self.request.user)
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            if status_param == 'pending':
+                # Only return nodes that are not connected via websocket (no active agent)
+                # TODO: Integrate with actual websocket connection tracking
+                queryset = queryset.filter(status='pending')
+            elif status_param == 'online':
+                queryset = queryset.filter(status='online')
+            else:
+                queryset = queryset.filter(status=status_param)
+        return queryset
     
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -121,7 +421,7 @@ class NodeViewSet(viewsets.ModelViewSet):
         serializer = NodeMetricsSerializer(metrics, many=True)
         return Response(serializer.data)
     
-    @action(detail=True, methods=['get'])
+        status='pending',
     def alerts(self, request, pk=None):
         """Get alerts for this node"""
         node = self.get_object()
@@ -256,6 +556,7 @@ class NodeAlertViewSet(viewsets.ReadOnlyModelViewSet):
     """
     serializer_class = NodeAlertSerializer
     permission_classes = [IsAuthenticated]
+    authentication_classes = [CookieOAuth2Authentication]
     
     def get_queryset(self):
         return NodeAlert.objects.filter(node__owner=self.request.user)

@@ -53,7 +53,7 @@ if __name__ == '__main__':
             ssl_certfile = os.path.join(cert_dir, 'localhost.pem')
             
             print("=" * 70)
-            print("🚀 Starting Alterion Panel Server (Hot Reload Enabled)")
+            print("Starting Alterion Panel Server (Hot Reload Enabled)")
             print("=" * 70)
             print("HTTPS Server: https://localhost:13527/")
             print("WebSocket: wss://localhost:13527/")

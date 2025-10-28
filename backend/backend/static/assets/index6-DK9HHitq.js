@@ -1,1 +1,0 @@
-import{j as e}from"./index1-Dc8EUxEM.js";const s=()=>e.jsxs("div",{className:"card",children:[e.jsx("h2",{children:"Security Center"}),e.jsx("div",{children:"Manage firewall, SSL, and security settings here."})]});export{s as S};

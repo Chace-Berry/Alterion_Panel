@@ -32,8 +32,8 @@ def favicon(request):
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/', include('dashboard.urls')),
-    path('api/', include('services.urls')),
+    path('api/alterion/panel/', include('dashboard.urls')),
+    path('api/alterion/panel/', include('services.urls')),
     path('api/alterion/panel/auth/', include('authentication.urls')),
 
     path('static/favicon.ico', favicon),

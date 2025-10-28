@@ -28,6 +28,7 @@ class Node(models.Model):
     ]
     
     # Basic Info
+    id = models.CharField(max_length=64, primary_key=True)  # Use serverid as string PK
     name = models.CharField(max_length=255)
     hostname = models.CharField(max_length=255)
     ip_address = models.GenericIPAddressField()

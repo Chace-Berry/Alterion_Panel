@@ -1,1 +1,0 @@
-import{j as e}from"./index1-Dc8EUxEM.js";const a=()=>e.jsxs("div",{className:"card",children:[e.jsx("h2",{children:"File Manager"}),e.jsx("div",{children:"Browse, upload, download, and manage files here."})]});export{a as F};

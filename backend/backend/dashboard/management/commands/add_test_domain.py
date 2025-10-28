@@ -4,7 +4,7 @@ Management command to add a test verified domain
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.contrib.auth import get_user_model
-from dashboard.models import Domain
+from services.models import Domain
 from datetime import timedelta
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend

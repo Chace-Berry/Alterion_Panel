@@ -219,35 +219,22 @@ class ActivityWidgetView(APIView):
 
 
 class DomainExpiryWidgetView(APIView):
-    
+    """Widget showing domain expiry information"""
     authentication_classes = [CookieOAuth2Authentication]
     
     def get(self, request):
-
-        domains = [
-            {
-                'domain': 'example.com',
-                'expiry_date': (timezone.now() + timedelta(days=45)).isoformat(),
-                'days_remaining': 45,
-                'status': 'ok',
-                'registrar': 'GoDaddy'
-            },
-            {
-                'domain': 'mysite.net',
-                'expiry_date': (timezone.now() + timedelta(days=7)).isoformat(),
-                'days_remaining': 7,
-                'status': 'warning',
-                'registrar': 'Namecheap'
-            },
-            {
-                'domain': 'oldsite.org',
-                'expiry_date': (timezone.now() + timedelta(days=365)).isoformat(),
-                'days_remaining': 365,
-                'status': 'ok',
-                'registrar': 'Google Domains'
-            }
-        ]
-        return Response({'domains': domains})
+        # Import here to avoid circular dependency
+        from services.models import Domain
+        from services.serializers import DomainSerializer
+        
+        # Get user's active domains
+        domains = Domain.objects.filter(
+            user=request.user,
+            is_active=True
+        ).select_related('linked_server')[:10]  # Limit to 10 most recent
+        
+        serializer = DomainSerializer(domains, many=True)
+        return Response({'domains': serializer.data})
 
 
 class NodeWidgetProxyView(APIView):

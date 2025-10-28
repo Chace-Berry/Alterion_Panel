@@ -487,6 +487,6 @@ This project is licensed under the **GNU General Public License v3.0** - see the
 
 **Made with ❤️ by Chace Berry**
 
-[Coming Soon]() • [Comming Soon]() • [GitHub](https://github.com/chace-berry/alterion_panel)
+[Coming Soon]() • [Comming Soon]() • [GitHub](https://github.com/chaceberry/alterion-panel)
 
 </div>

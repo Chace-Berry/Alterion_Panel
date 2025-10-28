@@ -1,0 +1,127 @@
+{
+    "CTk": {
+        "fg_color": ["#1a1a1a", "#2b2b2b"]
+    },
+    "CTkFrame": {
+        "corner_radius": 10,
+        "border_width": 1,
+        "fg_color": ["#2d2d2d", "#3d3d3d"],
+        "top_fg_color": ["#2d2d2d", "#3d3d3d"],
+        "border_color": ["#404040", "#505050"]
+    },
+    "CTkButton": {
+        "corner_radius": 8,
+        "border_width": 0,
+        "fg_color": ["#007acc", "#005999"],
+        "hover_color": ["#0099ff", "#007acc"],
+        "border_color": ["#007acc", "#005999"],
+        "text_color": ["#ffffff", "#ffffff"],
+        "text_color_disabled": ["#a0a0a0", "#909090"]
+    },
+    "CTkLabel": {
+        "corner_radius": 0,
+        "fg_color": "transparent",
+        "text_color": ["#ffffff", "#ffffff"]
+    },
+    "CTkEntry": {
+        "corner_radius": 6,
+        "border_width": 2,
+        "fg_color": ["#404040", "#505050"],
+        "border_color": ["#606060", "#707070"],
+        "text_color": ["#ffffff", "#ffffff"],
+        "placeholder_text_color": ["#a0a0a0", "#909090"]
+    },
+    "CTkRadioButton": {
+        "corner_radius": 1000,
+        "border_width_checked": 6,
+        "border_width_unchecked": 3,
+        "fg_color": ["#007acc", "#005999"],
+        "border_color": ["#606060", "#707070"],
+        "hover_color": ["#0099ff", "#007acc"],
+        "text_color": ["#ffffff", "#ffffff"],
+        "text_color_disabled": ["#a0a0a0", "#909090"]
+    },
+    "CTkProgressBar": {
+        "corner_radius": 1000,
+        "border_width": 0,
+        "fg_color": ["#404040", "#505050"],
+        "progress_color": ["#007acc", "#005999"],
+        "border_color": ["#404040", "#505050"]
+    },
+    "CTkScrollbar": {
+        "corner_radius": 1000,
+        "border_spacing": 4,
+        "fg_color": "transparent",
+        "button_color": ["#606060", "#707070"],
+        "button_hover_color": ["#808080", "#909090"]
+    },
+    "CTkScrollableFrame": {
+        "label_fg_color": ["#2d2d2d", "#3d3d3d"]
+    },
+    "CTkSegmentedButton": {
+        "corner_radius": 6,
+        "border_width": 2,
+        "fg_color": ["#404040", "#505050"],
+        "selected_color": ["#007acc", "#005999"],
+        "selected_hover_color": ["#0099ff", "#007acc"],
+        "unselected_color": ["#404040", "#505050"],
+        "unselected_hover_color": ["#606060", "#707070"],
+        "text_color": ["#ffffff", "#ffffff"],
+        "text_color_disabled": ["#a0a0a0", "#909090"]
+    },
+    "CTkSlider": {
+        "corner_radius": 1000,
+        "button_corner_radius": 1000,
+        "border_width": 6,
+        "fg_color": ["#404040", "#505050"],
+        "progress_color": ["#007acc", "#005999"],
+        "button_color": ["#007acc", "#005999"],
+        "button_hover_color": ["#0099ff", "#007acc"]
+    },
+    "CTkSwitch": {
+        "corner_radius": 1000,
+        "border_width": 3,
+        "button_length": 0,
+        "fg_color": ["#606060", "#707070"],
+        "progress_color": ["#007acc", "#005999"],
+        "button_color": ["#ffffff", "#ffffff"],
+        "button_hover_color": ["#f0f0f0", "#e0e0e0"]
+    },
+    "CTkTabview": {
+        "corner_radius": 6,
+        "fg_color": ["#2d2d2d", "#3d3d3d"],
+        "top_fg_color": ["#2d2d2d", "#3d3d3d"],
+        "border_width": 2,
+        "border_color": ["#404040", "#505050"],
+        "text_color": ["#ffffff", "#ffffff"],
+        "text_color_disabled": ["#a0a0a0", "#909090"],
+        "top_hover_color": ["#606060", "#707070"],
+        "top_selected_color": ["#007acc", "#005999"]
+    },
+    "CTkTextbox": {
+        "corner_radius": 6,
+        "border_width": 2,
+        "fg_color": ["#404040", "#505050"],
+        "border_color": ["#606060", "#707070"],
+        "text_color": ["#ffffff", "#ffffff"],
+        "scrollbar_button_color": ["#606060", "#707070"],
+        "scrollbar_button_hover_color": ["#808080", "#909090"]
+    },
+    "CTkFont": {
+        "macOS": {
+            "family": "SF Display",
+            "size": 13,
+            "weight": "normal"
+        },
+        "Windows": {
+            "family": "Segoe UI",
+            "size": 12,
+            "weight": "normal"
+        },
+        "Linux": {
+            "family": "Ubuntu",
+            "size": 11,
+            "weight": "normal"
+        }
+    }
+}

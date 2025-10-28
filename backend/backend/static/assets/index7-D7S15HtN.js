@@ -1,1 +1,0 @@
-import{j as e}from"./index1-Dc8EUxEM.js";const s=()=>e.jsxs("div",{className:"card",children:[e.jsx("h2",{children:"Backup Management"}),e.jsx("div",{children:"Configure and restore backups here."})]});export{s as B};

@@ -22,7 +22,7 @@ django_asgi_app = get_asgi_application()
 # Import after Django is initialized
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
-from dashboard.routing import websocket_urlpatterns
+from services.routing import websocket_urlpatterns
 
 
 class StaticFilesASGI:
