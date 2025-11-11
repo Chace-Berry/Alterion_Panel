@@ -10,6 +10,9 @@ from .file_manager_views import FileManagerViewSet
 from .domain_views import (
     DomainViewSet, whois_lookup, verify_domain, get_domain_verification_tokens
 )
+from .secret_manager_views import (
+    SecretProjectViewSet, SecretEnvironmentViewSet, SecretViewSet
+)
 
 router = DefaultRouter()
 router.register(r'ftp', FTPAccountViewSet)
@@ -20,6 +23,9 @@ router.register(r'nodes', NodeViewSet, basename='node')
 router.register(r'node-alerts', NodeAlertViewSet, basename='node-alert')
 router.register(r'files', FileManagerViewSet, basename='file-manager')
 router.register(r'domains', DomainViewSet, basename='domain')
+router.register(r'secret-projects', SecretProjectViewSet, basename='secret-project')
+router.register(r'secret-environments', SecretEnvironmentViewSet, basename='secret-environment')
+router.register(r'secrets', SecretViewSet, basename='secret')
 
 # Prefix added in main backend/urls.py as /api/alterion/panel/
 urlpatterns = router.urls + [

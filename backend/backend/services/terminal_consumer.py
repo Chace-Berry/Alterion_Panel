@@ -12,6 +12,9 @@ from dashboard.models import Server
 
 
 class TerminalConsumer(AsyncWebsocketConsumer):
+    async def close(self):
+        """Explicitly close all resources (SSH, local, PTY)"""
+        await self.disconnect(close_code=1000)
     """
     WebSocket consumer for interactive terminal sessions
     Supports:
@@ -20,6 +23,22 @@ class TerminalConsumer(AsyncWebsocketConsumer):
     """
 
     async def connect(self):
+        self.shell_task = None
+        self.ssh_channel = None
+        self.ssh_client = None
+        self.process = None
+        self.pty_master = None
+        self.pty_slave = None
+        self.shell_task = None
+        self.ssh_channel = None
+        self.ssh_client = None
+        self.process = None
+        self.shell_task = None
+        self.ssh_channel = None
+        self.ssh_client = None
+        self.shell_task = None
+        # If an old session exists, close it first
+        await self.close()
         """Accept WebSocket connection and initialize terminal"""
         self.node_id = self.scope['url_route']['kwargs'].get('node_id')
         self.server_id = self.scope['url_route']['kwargs'].get('server_id')
@@ -39,10 +58,15 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                 # Local terminal on the server itself
                 await self.init_local_terminal()
             elif self.node_id:
-                # Treat node_id as server ID or name for SSH
+                # Treat node_id as server ID or name for SSH or local
                 server = await self.get_server_by_id_or_name(self.node_id)
                 if server:
-                    await self.init_ssh_connection(server)
+                    # If server IP is localhost, use local shell
+                    ip = getattr(server, 'ip_address', None)
+                    if ip in ('127.0.0.1', 'localhost'):
+                        await self.init_local_terminal()
+                    else:
+                        await self.init_ssh_connection(server)
                 else:
                     await self.send(text_data=json.dumps({
                         'type': 'error',
@@ -50,13 +74,17 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                     }))
                     await self.close()
             elif self.server_id:
-                # SSH to server
+                # SSH to server or local
                 try:
                     server = await asyncio.to_thread(
                         Server.objects.get,
                         id=self.server_id
                     )
-                    await self.init_ssh_connection(server)
+                    ip = getattr(server, 'ip_address', None)
+                    if ip in ('127.0.0.1', 'localhost'):
+                        await self.init_local_terminal()
+                    else:
+                        await self.init_ssh_connection(server)
                 except Server.DoesNotExist:
                     await self.send(text_data=json.dumps({
                         'type': 'error',
@@ -77,10 +105,14 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             }))
             await self.close()
 
+    async def websocket_disconnect(self, message):
+        """Called by Django Channels when websocket closes"""
+        await self.close()
+
     async def disconnect(self, close_code):
         """Clean up resources on disconnect"""
         # Stop shell reading task
-        if self.shell_task:
+        if hasattr(self, 'shell_task') and self.shell_task:
             self.shell_task.cancel()
             try:
                 await self.shell_task
@@ -88,13 +120,13 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                 pass
         
         # Close SSH connection
-        if self.ssh_channel:
+        if hasattr(self, 'ssh_channel') and self.ssh_channel:
             self.ssh_channel.close()
-        if self.ssh_client:
+        if hasattr(self, 'ssh_client') and self.ssh_client:
             self.ssh_client.close()
         
         # Close local process
-        if self.process:
+        if hasattr(self, 'process') and self.process:
             self.process.terminate()
             try:
                 self.process.wait(timeout=2)
@@ -102,12 +134,12 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                 self.process.kill()
         
         # Close PTY
-        if self.pty_master is not None:
+        if hasattr(self, 'pty_master') and self.pty_master is not None:
             try:
                 os.close(self.pty_master)
             except:
                 pass
-        if self.pty_slave is not None:
+        if hasattr(self, 'pty_slave') and self.pty_slave is not None:
             try:
                 os.close(self.pty_slave)
             except:
@@ -125,18 +157,18 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                 if self.ssh_channel:
                     # SSH connection
                     self.ssh_channel.send(user_input)
-                elif self.process and sys.platform == 'win32':
-                    # Windows subprocess
-                    self.process.stdin.write(user_input.encode())
-                    self.process.stdin.flush()
                 elif self.pty_master is not None:
-                    # Unix PTY
-                    os.write(self.pty_master, user_input.encode())
-                    
+                    # Unix PTY - write to master
+                    await asyncio.to_thread(os.write, self.pty_master, user_input.encode('utf-8'))
+                elif self.process and self.process.stdin:
+                    # Windows subprocess - write to stdin
+                    await asyncio.to_thread(self.process.stdin.write, user_input.encode('utf-8'))
+                    await asyncio.to_thread(self.process.stdin.flush)
+            
             elif data['type'] == 'resize':
                 # Handle terminal resize
-                cols = data.get('cols', 80)
                 rows = data.get('rows', 24)
+                cols = data.get('cols', 80)
                 
                 if self.ssh_channel:
                     self.ssh_channel.resize_pty(width=cols, height=rows)

@@ -285,6 +285,20 @@ class MetricsAPIView(APIView):
         return hardware_info
 
     def get(self, request):
+        # Check if this is for a remote node
+        node_id = request.query_params.get('node_id')
+        if node_id and node_id.startswith('node-'):
+            # Proxy to node agent
+            from services.node_api_client import call_node_api_sync
+            try:
+                result = call_node_api_sync(node_id, 'collect_metrics', {})
+                if 'error' in result:
+                    return Response(result, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return Response(result)
+            except Exception as e:
+                return Response({'error': f'Failed to collect node metrics: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Local metrics collection
         start_time = time.time()
 
         vm = psutil.virtual_memory()
@@ -645,7 +659,7 @@ def available_servers(request):
         nodes = Node.objects.filter(owner=request.user)
         for node in nodes:
             servers.append({
-                'id': f'node-{node.id}',
+                'id': node.id,  # node.id already has 'node-' prefix
                 'node_id': node.id,
                 'name': node.name,
                 'type': 'remote',

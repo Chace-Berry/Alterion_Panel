@@ -1,0 +1,1 @@
+import{j as a}from"./index1-DU0OaFhi.js";const r=()=>a.jsxs("div",{className:"card",children:[a.jsx("h2",{children:"Load Balancer"}),a.jsx("div",{children:"Configure and monitor load balancers here."})]});export{r as L};

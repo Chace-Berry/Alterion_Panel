@@ -39,6 +39,11 @@ class Node(models.Model):
     auth_key = models.TextField(help_text="SSH key or API key for authentication")
     username = models.CharField(max_length=100, default='root')
     
+    # SSH/SFTP Authentication (for file operations)
+    ssh_port = models.IntegerField(default=22, help_text="SSH port for SFTP file operations")
+    ssh_key_id = models.CharField(max_length=255, null=True, blank=True, 
+                                  help_text="Key ID for retrieving SSH password from secret manager")
+    
     # Status
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     last_seen = models.DateTimeField(null=True, blank=True)

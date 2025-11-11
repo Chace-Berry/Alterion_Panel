@@ -80,9 +80,38 @@ class CustomTokenView(TokenView):
                 try:
                     from dashboard.logging_utils import log_login
                     from oauth2_provider.models import AccessToken
+                    from authentication.user_list_views import get_device_fingerprint, get_device_name, get_client_ip
+                    from accounts.models import DeviceLogin
+                    
                     token_obj = AccessToken.objects.get(token=access_token)
                     if token_obj.user:
                         log_login(token_obj.user, request)
+                        
+                        # Record device login
+                        device_id = get_device_fingerprint(request)
+                        ip_address = get_client_ip(request)
+                        user_agent = request.META.get('HTTP_USER_AGENT', '')
+                        device_name = get_device_name(request)
+                        
+                        device_login, created = DeviceLogin.objects.get_or_create(
+                            user=token_obj.user,
+                            device_id=device_id,
+                            defaults={
+                                'ip_address': ip_address,
+                                'user_agent': user_agent,
+                                'device_name': device_name,
+                                'login_count': 1
+                            }
+                        )
+                        
+                        if not created:
+                            device_login.ip_address = ip_address
+                            device_login.user_agent = user_agent
+                            device_login.device_name = device_name
+                            device_login.login_count += 1
+                            device_login.save()
+                        
+                        logger.info(f"CustomTokenView: Recorded device login for user {token_obj.user.username}")
                 except Exception as e:
                     logger.error(f"CustomTokenView: Error logging login activity: {e}")
 

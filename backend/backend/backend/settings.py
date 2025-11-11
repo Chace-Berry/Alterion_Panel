@@ -27,6 +27,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['localhost','127.0.0.1',"massive-easy-tetra.ngrok-free.app"]
 
+# Server Port Configuration
+PORT = 13527  # Fixed HTTPS port for Alterion Panel
+
+# Backend WebSocket Host (for node API client)
+BACKEND_WS_HOST = "massive-easy-tetra.ngrok-free.app"
 
 # Application definition
 
@@ -176,6 +181,7 @@ CORS_ALLOW_CREDENTIALS = True
 # REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        'authentication.cookie_oauth2.CookieOAuth2Authentication',
         'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
@@ -197,6 +203,14 @@ ASGI_APPLICATION = 'backend.asgi.application'
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels.layers.InMemoryChannelLayer'
+    }
+}
+
+# Cache configuration for download progress tracking
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
     }
 }
 

@@ -54,3 +54,30 @@ class WidgetLayout(models.Model):
     class Meta:
         verbose_name = "Widget Layout"
         verbose_name_plural = "Widget Layouts"
+
+
+class DeviceLogin(models.Model):
+    """Track user logins per device for account selector"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='device_logins')
+    device_id = models.CharField(
+        max_length=255,
+        help_text="Unique device identifier (fingerprint)"
+    )
+    ip_address = models.GenericIPAddressField()
+    user_agent = models.TextField(blank=True)
+    device_name = models.CharField(max_length=255, blank=True, help_text="Browser and OS info")
+    last_login = models.DateTimeField(auto_now=True)
+    first_seen = models.DateTimeField(auto_now_add=True)
+    login_count = models.IntegerField(default=1)
+
+    class Meta:
+        verbose_name = "Device Login"
+        verbose_name_plural = "Device Logins"
+        unique_together = ['user', 'device_id']
+        ordering = ['-last_login']
+        indexes = [
+            models.Index(fields=['device_id', '-last_login']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} on {self.device_name or 'Unknown Device'}"

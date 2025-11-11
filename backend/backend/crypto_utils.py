@@ -3,6 +3,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.fernet import Fernet
 
 # --- Backend Key Management Helpers ---
 
@@ -76,9 +77,8 @@ def backend_generate_and_store_keypair(private_path=BACKEND_PRIVATE_KEY_PATH, pu
 
 
 
-def backend_load_private_key(private_path=BACKEND_PRIVATE_KEY_PATH):
-    with open(private_path, "rb") as f:
-        return load_private_key(f.read())
+def backend_load_private_key():
+    return load_encrypted_private_key()
 
 def backend_load_public_key(public_path=BACKEND_PUBLIC_KEY_PATH):
     with open(public_path, "rb") as f:
@@ -145,10 +145,95 @@ try:
     _backend_private_key = backend_load_private_key()
     _backend_public_key = backend_load_public_key()
 except Exception as e:
-    pass
+    # If encrypted keys fail, try loading unencrypted fallback keys
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Failed to load encrypted keys: {e}. Trying unencrypted fallback...")
+    try:
+        with open(BACKEND_PRIVATE_KEY_PATH, "rb") as f:
+            _backend_private_key = load_private_key(f.read())
+        with open(BACKEND_PUBLIC_KEY_PATH, "rb") as f:
+            _backend_public_key = load_public_key(f.read())
+        logger.info("Successfully loaded unencrypted fallback keys")
+    except Exception as fallback_error:
+        logger.error(f"Failed to load fallback keys too: {fallback_error}")
 
 def get_backend_private_key():
     return _backend_private_key
 
 def get_backend_public_key():
     return _backend_public_key
+
+
+# --- Simple encryption/decryption for secrets (using AES-GCM) ---
+from cryptography.fernet import Fernet
+from django.conf import settings
+
+def get_secret_key():
+    """Get or generate encryption key for secrets"""
+    # Use Django's SECRET_KEY as the base for generating a Fernet key
+    key = settings.SECRET_KEY.encode()
+    # Hash it to get consistent 32 bytes
+    from hashlib import sha256
+    hashed = sha256(key).digest()
+    # Fernet requires base64-encoded 32-byte key
+    return base64.urlsafe_b64encode(hashed)
+
+def encrypt_value(value: str) -> str:
+    """Encrypt a string value for storage"""
+    f = Fernet(get_secret_key())
+    encrypted = f.encrypt(value.encode())
+    return base64.b64encode(encrypted).decode()
+
+def decrypt_value(encrypted_value: str) -> str:
+    """Decrypt a stored encrypted value"""
+    f = Fernet(get_secret_key())
+    encrypted_bytes = base64.b64decode(encrypted_value.encode())
+    decrypted = f.decrypt(encrypted_bytes)
+    return decrypted.decode()
+
+# --- Persistent Fernet Key (pk_key) for encrypting RSA private key ---
+PK_KEY_ENV = "ALTERION_PK_KEY"
+ENCRYPTED_PRIVKEY_PATH = os.path.join(KEYS_DIR, "backend_private.pem.enc")
+PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "backend_public.pem")
+
+# Helper to get pk_key from env, or generate and set if missing
+def get_pk_key():
+    pk_key = os.environ.get(PK_KEY_ENV)
+    if pk_key:
+        return pk_key.encode() if isinstance(pk_key, str) else pk_key
+    # Generate new key and set in env
+    new_key = Fernet.generate_key()
+    os.environ[PK_KEY_ENV] = new_key.decode()
+    return new_key
+
+# Encrypt and store private key with Fernet
+def encrypt_and_store_private_key(private_key):
+    f = Fernet(get_pk_key())
+    pem = serialize_private_key(private_key)
+    encrypted = f.encrypt(pem)
+    with open(ENCRYPTED_PRIVKEY_PATH, "wb") as fkey:
+        fkey.write(encrypted)
+
+# Load and decrypt private key from disk
+def load_encrypted_private_key():
+    f = Fernet(get_pk_key())
+    with open(ENCRYPTED_PRIVKEY_PATH, "rb") as fkey:
+        encrypted = fkey.read()
+    pem = f.decrypt(encrypted)
+    return load_private_key(pem)
+
+# Generate and store new keypair (encrypt privkey with pk_key)
+def generate_and_store_encrypted_keypair():
+    ensure_keys_dir()
+    if os.path.exists(ENCRYPTED_PRIVKEY_PATH) and os.path.exists(PUBLIC_KEY_PATH):
+        return  # Already exists
+    priv, pub = generate_rsa_keypair()
+    encrypt_and_store_private_key(priv)
+    with open(PUBLIC_KEY_PATH, "wb") as f:
+        f.write(serialize_public_key(pub))
+    try:
+        os.chmod(ENCRYPTED_PRIVKEY_PATH, stat.S_IRUSR | stat.S_IWUSR)
+        os.chmod(PUBLIC_KEY_PATH, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+    except Exception:
+        pass

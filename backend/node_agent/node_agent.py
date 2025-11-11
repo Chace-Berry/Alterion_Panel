@@ -74,14 +74,39 @@ from pathlib import Path
 from datetime import datetime
 import psutil
 import node_crypto_utils as crypto_utils
+from sftp_server import SFTPServer
 
+# Base configuration - server_url must be provided via server_config.json
 AGENT_CONFIG = {
-    "server_url": "wss://massive-easy-tetra.ngrok-free.app/alterion/panel/agent/{serverid}/",
+    "server_url": None,  # Must be set via server_config.json
     "agent_id_file": "agent_id.json",
     "reconnect_delay": 5,
     "serverid_path": "serverid.dat",
     "connection_timeout": 30,  # Timeout for websocket operations
 }
+
+# Load server config (created during SSH onboarding) - REQUIRED
+server_config_file = Path("server_config.json")
+if server_config_file.exists():
+    try:
+        with open(server_config_file, 'r') as f:
+            server_config = json.load(f)
+            AGENT_CONFIG.update(server_config)
+            print(f"✓ Loaded server configuration from {server_config_file}")
+            print(f"  Server URL: {AGENT_CONFIG['server_url']}")
+    except Exception as e:
+        print(f"✗ ERROR: Failed to load server_config.json: {e}")
+        sys.exit(1)
+else:
+    print(f"✗ ERROR: server_config.json not found!")
+    print(f"  This file should be created during SSH onboarding.")
+    print(f"  Please run the SSH onboarding process from the panel.")
+    sys.exit(1)
+
+# Verify server_url is set
+if not AGENT_CONFIG.get("server_url"):
+    print(f"✗ ERROR: server_url not configured in server_config.json")
+    sys.exit(1)
 
 
 # --- Setup logging ---
@@ -97,6 +122,52 @@ logging.basicConfig(
 )
 logger = logging.getLogger("alterion_node_agent")
 logger.setLevel(logging.DEBUG)
+
+# File to persist API responses that couldn't be delivered due to disconnects
+PENDING_RESPONSES_FILE = Path("pending_responses.json")
+
+
+def _load_pending_responses():
+    try:
+        if PENDING_RESPONSES_FILE.exists():
+            return json.loads(PENDING_RESPONSES_FILE.read_text()) or []
+    except Exception as e:
+        logger.warning(f"Failed to load pending responses: {e}")
+    return []
+
+
+def _save_pending_responses(responses):
+    try:
+        PENDING_RESPONSES_FILE.write_text(json.dumps(responses))
+    except Exception as e:
+        logger.error(f"Failed to save pending responses: {e}")
+
+
+async def _queue_response(response_obj):
+    """Store a response locally to resend after reconnect."""
+    try:
+        responses = _load_pending_responses()
+        responses.append(response_obj)
+        _save_pending_responses(responses)
+        logger.info(f"Queued response for later delivery: {response_obj.get('request_id')}")
+    except Exception as e:
+        logger.error(f"Failed to queue response: {e}")
+
+
+async def _try_send_or_queue(ws, response_obj):
+    """Attempt to send over ws; if it fails, queue locally."""
+    try:
+        await ws.send(json.dumps(response_obj))
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to send response (will queue): {e}")
+        try:
+            await _queue_response(response_obj)
+        except Exception:
+            # queue failure already logged
+            pass
+        return False
+
 
 def write_pid():
     try:
@@ -212,17 +283,35 @@ def load_or_create_identity():
     keys_dir = Path("keys")
     keys_dir.mkdir(exist_ok=True)
     id_path = Path(AGENT_CONFIG["agent_id_file"])
-    privkey_path = keys_dir / "agent_private.pem"
-    pubkey_path = keys_dir / "agent_public.pem"
+    
+    # Check for agent_private.pem first, then fallback to keys/agent_private.pem
+    privkey_paths = [Path("agent_private.pem"), keys_dir / "agent_private.pem"]
+    pubkey_paths = [Path("agent_public.pem"), keys_dir / "agent_public.pem"]
+    
+    privkey_path = None
+    pubkey_path = None
+    
+    # Find existing keys
+    for p in privkey_paths:
+        if p.exists():
+            privkey_path = p
+            break
+    
+    for p in pubkey_paths:
+        if p.exists():
+            pubkey_path = p
+            break
+    
     node_uid = get_or_create_server_id()
     
-    if id_path.exists() and privkey_path.exists() and pubkey_path.exists():
+    # Try to load existing identity
+    if privkey_path and pubkey_path and id_path.exists():
         try:
             with open(id_path, "r") as f:
                 data = json.load(f)
             priv = crypto_utils.load_private_key(privkey_path.read_bytes())
             pub = crypto_utils.load_public_key(pubkey_path.read_bytes())
-            logger.info(f"Loaded identity: agent_id={data.get('agent_id')}, serverid={data.get('serverid')}")
+            logger.info(f"✓ Loaded identity: agent_id={data.get('agent_id')}, serverid={data.get('serverid')}")
             return {
                 "private_key": priv,
                 "public_key": pub,
@@ -235,11 +324,43 @@ def load_or_create_identity():
         except Exception as e:
             logger.warning(f"Failed to load existing identity: {e}. Creating new one.")
     
+    # If we have keys but no agent_id.json, try to load just the keys
+    if privkey_path and pubkey_path:
+        try:
+            priv = crypto_utils.load_private_key(privkey_path.read_bytes())
+            pub = crypto_utils.load_public_key(pubkey_path.read_bytes())
+            logger.info(f"✓ Loaded existing keys (no agent_id.json), serverid={node_uid}")
+            
+            # Create agent_id.json
+            data = {
+                "serverid": node_uid,
+                "agent_id": None,
+                "private_key_file": str(privkey_path),
+                "public_key_file": str(pubkey_path),
+            }
+            with open(id_path, "w") as f:
+                json.dump(data, f)
+            
+            return {
+                "private_key": priv,
+                "public_key": pub,
+                "agent_id": None,
+                "node_uid": node_uid,
+                "private_key_file": str(privkey_path),
+                "public_key_file": str(pubkey_path),
+            }
+        except Exception as e:
+            logger.warning(f"Failed to load existing keys: {e}. Generating new keypair.")
+    
     # Generate new keypair
     logger.info("Generating new keypair...")
     priv, pub = crypto_utils.generate_rsa_keypair()
     privkey_bytes = crypto_utils.serialize_private_key(priv)
     pubkey_bytes = crypto_utils.serialize_public_key(pub)
+    
+    # Use root directory for keys (not keys/ subdirectory) to match SSH onboarding
+    privkey_path = Path("agent_private.pem")
+    pubkey_path = Path("agent_public.pem")
     
     with open(privkey_path, "wb") as f:
         f.write(privkey_bytes)
@@ -258,7 +379,7 @@ def load_or_create_identity():
     with open(id_path, "w") as f:
         json.dump(data, f)
     
-    logger.info("Created new identity")
+    logger.info("✓ Created new identity")
     return {
         "private_key": priv,
         "public_key": pub,
@@ -330,20 +451,88 @@ async def handle_encrypted_message(msg, identity):
         return {"status": "error", "error": str(e)}
 
 async def agent_main():
-    identity = load_or_create_identity()
-    node_uid = identity["node_uid"]
+    logger.info("agent_main() started")
+    try:
+        logger.info("Loading identity...")
+        identity = load_or_create_identity()
+        node_uid = identity["node_uid"]
+        logger.info(f"✓ Agent initialized with node_uid: {node_uid}")
+    except Exception as e:
+        logger.error(f"✗ Failed to initialize identity: {e}", exc_info=True)
+        logger.error("agent_main() exiting due to identity error")
+        return
+
+    # Start SFTP server for direct file access
+    logger.info("Starting SFTP server...")
+    sftp_server = SFTPServer(port=0)  # Auto-select port
+    sftp_server.start()
     
+    # Wait a moment for server to start
+    import time
+    time.sleep(0.5)
+    sftp_port = sftp_server.get_port()
+    if sftp_port:
+        logger.info(f"✓ SFTP server started on port {sftp_port}")
+    else:
+        logger.error("✗ SFTP server failed to start")
+        sftp_port = None
+    
+    # Note: For production, SFTP traffic will be proxied through WebSocket connection
+    # No additional tunneling needed - backend will connect via WebSocket proxy
+    # SFTP server runs locally on node, backend sends commands via WebSocket
+    logger.info(f"SFTP server ready on localhost:{sftp_port} (will be accessed via WebSocket proxy)")
 
+    logger.info("Entering main connection loop...")
+    
+    loop_count = 0
     while True:
-        if shutdown_event.is_set():
-            logger.info("Shutdown event set. Exiting agent main loop.")
-            break
-
-        ws = None
+        loop_count += 1
+        logger.info(f"Loop iteration #{loop_count}")
         try:
-            ssl_ctx = ssl.create_default_context()
-            ws_url = AGENT_CONFIG["server_url"].format(serverid=node_uid)
-            logger.info(f"Connecting to {ws_url}...")
+            if shutdown_event.is_set():
+                logger.info("Shutdown event set. Exiting agent main loop.")
+                break
+
+            logger.info("Preparing connection...")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            ws = None
+            
+            logger.info("Creating SSL context...")
+            sys.stdout.flush()
+            sys.stderr.flush()
+            try:
+                ssl_ctx = ssl.create_default_context()
+                logger.info("✓ SSL context created")
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except Exception as ssl_error:
+                logger.error(f"✗ Failed to create SSL context: {ssl_error}", exc_info=True)
+                sys.stdout.flush()
+                sys.stderr.flush()
+                raise
+            
+            logger.info(f"Server URL template: {AGENT_CONFIG['server_url']}")
+            logger.info(f"Node UID: {node_uid}")
+            logger.info(f"Node UID type: {type(node_uid)}")
+            
+            try:
+                ws_url = AGENT_CONFIG["server_url"].format(serverid=node_uid)
+                logger.info(f"✓ Formatted WebSocket URL: {ws_url}")
+            except Exception as format_error:
+                logger.error(f"✗ Failed to format server URL: {format_error}", exc_info=True)
+                logger.error(f"  Server URL template: {AGENT_CONFIG['server_url']}")
+                logger.error(f"  Node UID: {node_uid}")
+                raise
+            
+            logger.info(f"→ Connecting to {ws_url}...")
+            
+        except Exception as loop_setup_error:
+            logger.error(f"✗ Error in connection setup: {loop_setup_error}", exc_info=True)
+            await asyncio.sleep(AGENT_CONFIG["reconnect_delay"])
+            continue
+
+        try:
 
             async with websockets.connect(
                 ws_url,
@@ -400,7 +589,8 @@ async def agent_main():
                 # Step 2: Send encrypted registration
                 reg_payload = {
                     "action": "register",
-                    "serverid": identity["node_uid"]
+                    "serverid": identity["node_uid"],
+                    "sftp_port": sftp_port  # Local SFTP port (backend will proxy via WebSocket)
                 }
 
                 logger.info("→ Sending encrypted registration...")
@@ -428,6 +618,25 @@ async def agent_main():
                     identity["agent_id"] = agent_id
                     identity["code"] = code
                     logger.info(f"✓✓✓ REGISTERED as {agent_id} with code: {code}")
+                    # After successful registration, attempt to resend any queued responses
+                    try:
+                        pending = _load_pending_responses()
+                        if pending:
+                            logger.info(f"Found {len(pending)} queued responses - attempting resend...")
+                            sent = []
+                            for resp in pending:
+                                try:
+                                    await ws.send(json.dumps(resp))
+                                    sent.append(resp)
+                                except Exception as e:
+                                    logger.warning(f"Failed to resend queued response {resp.get('request_id')}: {e}")
+                            # Remove sent responses from queue
+                            if sent:
+                                remaining = [r for r in pending if r not in sent]
+                                _save_pending_responses(remaining)
+                                logger.info(f"Resent {len(sent)} queued responses, {len(remaining)} remaining")
+                    except Exception as e:
+                        logger.warning(f"Error while attempting to resend queued responses: {e}")
                 else:
                     logger.error("Registration incomplete - no node_id or code received")
                     await asyncio.sleep(AGENT_CONFIG["reconnect_delay"])
@@ -496,74 +705,166 @@ async def agent_main():
                             }
 
                             logger.info(f"[VERIFY] Sending response: {response}")
-                            await ws.send(json.dumps(response))
-                            logger.info("[VERIFY] Response sent to backend")
+                            await _try_send_or_queue(ws, response)
+                            logger.info("[VERIFY] Response sent/queued to backend")
                             continue
 
                         # --- Handle API bridge requests (from backend middleware) ---
                         if msg_data.get("type") == "api_request":
                             api = msg_data.get("api")
-                            payload = msg_data.get("payload")
-                            logger.info(f"[API_PROXY] Received API request: {api}")
+                            payload = msg_data.get("payload") or {}
+                            request_id = msg_data.get("request_id")
+                            logger.info(f"[API_PROXY] Received API request: {api} (ID: {request_id}) with payload keys: {list(payload.keys())}")
 
                             # API to module mapping:
                             #   - collect_metrics: metrics (system metrics)
-                            #   - list_files: sftp (file operations)
+                            #   - list_files, upload_file, create_directory, delete, rename, read_file, write_file: sftp (file operations)
                             #   - terminal_open: terminal (persistent terminal session)
                             #   - nlb_status: nlb (node load balancing)
                             from functions import metrics, terminal, sftp, nlb
 
                             try:
+                                # Metrics API
                                 if api == "collect_metrics":
-                                    # Reference: functions/metrics.py
                                     result = await metrics.collect_metrics()
-                                    await ws.send(json.dumps({
+                                    await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
+                                        "request_id": request_id,
                                         "result": result
-                                    }))
-                                    logger.info(f"[API_PROXY] Sent API response for {api}")
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
+                                # SFTP/File Manager APIs
                                 elif api == "list_files":
-                                    # Reference: functions/sftp.py
-                                    path = payload.get("path", ".") if payload else "."
+                                    path = payload.get("path", ".")
+                                    logger.info(f"[API_PROXY] Calling sftp.list_files with path: {path}")
                                     result = await sftp.list_files(path)
-                                    await ws.send(json.dumps({
+                                    logger.info(f"[API_PROXY] sftp.list_files returned: {result.keys() if isinstance(result, dict) else type(result)}")
+                                    if isinstance(result, dict) and 'error' in result:
+                                        logger.error(f"[API_PROXY] list_files error: {result['error']}")
+                                    await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
+                                        "request_id": request_id,
                                         "result": result
-                                    }))
-                                    logger.info(f"[API_PROXY] Sent API response for {api}")
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
+                                elif api == "upload_file":
+                                    path = payload.get("path")
+                                    file_name = payload.get("file_name")
+                                    file_bytes = payload.get("file_bytes")
+                                    # Decode base64 if needed (base64 already imported at module level)
+                                    if file_bytes and isinstance(file_bytes, str):
+                                        file_bytes = base64.b64decode(file_bytes)
+                                    result = await sftp.upload_file(path, file_name, file_bytes)
+                                    await _try_send_or_queue(ws, {
+                                        "type": "api_response",
+                                        "api": api,
+                                        "request_id": request_id,
+                                        "result": result
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
+                                elif api == "create_directory":
+                                    path = payload.get("path")
+                                    result = await sftp.create_directory(path)
+                                    await _try_send_or_queue(ws, {
+                                        "type": "api_response",
+                                        "api": api,
+                                        "request_id": request_id,
+                                        "result": result
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
+                                elif api == "delete":
+                                    path = payload.get("path")
+                                    result = await sftp.delete(path)
+                                    await _try_send_or_queue(ws, {
+                                        "type": "api_response",
+                                        "api": api,
+                                        "request_id": request_id,
+                                        "result": result
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
+                                elif api == "rename":
+                                    old_path = payload.get("old_path")
+                                    new_path = payload.get("new_path")
+                                    result = await sftp.rename(old_path, new_path)
+                                    await _try_send_or_queue(ws, {
+                                        "type": "api_response",
+                                        "api": api,
+                                        "request_id": request_id,
+                                        "result": result
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
+                                elif api == "read_file":
+                                    path = payload.get("path")
+                                    logger.info(f"[API_PROXY] Calling sftp.read_file with path: {path}")
+                                    result = await sftp.read_file(path)
+                                    logger.info(f"[API_PROXY] sftp.read_file returned: {result.keys() if isinstance(result, dict) else type(result)}")
+                                    if isinstance(result, dict) and 'error' in result:
+                                        logger.error(f"[API_PROXY] read_file error: {result['error']}")
+                                    await _try_send_or_queue(ws, {
+                                        "type": "api_response",
+                                        "api": api,
+                                        "request_id": request_id,
+                                        "result": result
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
+                                elif api == "write_file":
+                                    path = payload.get("path")
+                                    content = payload.get("content")
+                                    result = await sftp.write_file(path, content)
+                                    await _try_send_or_queue(ws, {
+                                        "type": "api_response",
+                                        "api": api,
+                                        "request_id": request_id,
+                                        "result": result
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
+                                # Terminal API (streaming)
                                 elif api == "terminal_open":
-                                    # Reference: functions/terminal.py
-                                    # Start a persistent terminal session and stream data over the WebSocket
-                                    logger.info(f"[API_PROXY] Starting persistent terminal session for frontend...")
+                                    logger.info(f"[API_PROXY] Starting persistent terminal session...")
                                     await terminal.terminal_ws_session(ws, payload)
                                     logger.info(f"[API_PROXY] Terminal session ended.")
+                                
+                                # NLB API
                                 elif api == "nlb_status":
-                                    # Reference: functions/nlb.py
                                     result = await nlb.status(payload)
-                                    await ws.send(json.dumps({
+                                    await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
+                                        "request_id": request_id,
                                         "result": result
-                                    }))
-                                    logger.info(f"[API_PROXY] Sent API response for {api}")
+                                    })
+                                    logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
+                                
                                 else:
                                     result = {"error": f"Unknown API: {api}"}
-                                    await ws.send(json.dumps({
+                                    await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
+                                        "request_id": request_id,
                                         "result": result
-                                    }))
-                                    logger.info(f"[API_PROXY] Sent API response for {api}")
+                                    })
+                                    logger.warning(f"[API_PROXY] Unknown API requested: {api}")
+                            
                             except Exception as e:
+                                logger.error(f"[API_PROXY] Error handling {api}: {e}", exc_info=True)
                                 result = {"error": str(e)}
-                                await ws.send(json.dumps({
+                                await _try_send_or_queue(ws, {
                                     "type": "api_response",
                                     "api": api,
+                                    "request_id": request_id,
                                     "result": result
-                                }))
-                                logger.info(f"[API_PROXY] Sent error response for {api}")
+                                })
+                                logger.info(f"[API_PROXY] Sent/Queued error response for {api}")
                             continue
 
                         # Normal timeout for keepalive
@@ -574,11 +875,11 @@ async def agent_main():
                         break
                         
         except asyncio.TimeoutError:
-            logger.error("Connection timeout")
+            logger.error("✗ Connection timeout")
         except websockets.exceptions.WebSocketException as e:
-            logger.error(f"WebSocket error: {e}")
+            logger.error(f"✗ WebSocket error: {e}", exc_info=True)
         except Exception as e:
-            logger.error(f"Connection error: {e}", exc_info=True)
+            logger.error(f"✗ Connection error: {e}", exc_info=True)
         finally:
             if ws:
                 try:
@@ -586,12 +887,44 @@ async def agent_main():
                 except:
                     pass
         
-        if not shutdown_event.is_set():
-            logger.info(f"Reconnecting in {AGENT_CONFIG['reconnect_delay']} seconds...")
-            await asyncio.sleep(AGENT_CONFIG["reconnect_delay"])
+            if not shutdown_event.is_set():
+                logger.info(f"Reconnecting in {AGENT_CONFIG['reconnect_delay']} seconds...")
+                await asyncio.sleep(AGENT_CONFIG["reconnect_delay"])
+    
+    logger.info("agent_main() loop exited - this should only happen on shutdown")
 
 if __name__ == "__main__":
     import sys
+    
+    # Verify critical imports are available
+    try:
+        import websockets
+        import ssl
+        import psutil
+        logger.info("✓ All critical imports verified")
+    except ImportError as e:
+        logger.error(f"✗ Missing critical import: {e}")
+        print(f"\n✗ ERROR: Missing required module: {e}")
+        print("Please run: pip install -r requirements.txt")
+        sys.exit(1)
+    
+    # Log current configuration for debugging
+    logger.info("=" * 60)
+    logger.info("AGENT CONFIGURATION")
+    logger.info("=" * 60)
+    logger.info(f"Server URL: {AGENT_CONFIG.get('server_url')}")
+    logger.info(f"Reconnect delay: {AGENT_CONFIG.get('reconnect_delay')}")
+    logger.info(f"Connection timeout: {AGENT_CONFIG.get('connection_timeout')}")
+    logger.info(f"Working directory: {os.getcwd()}")
+    logger.info(f"server_config.json exists: {Path('server_config.json').exists()}")
+    if Path('server_config.json').exists():
+        try:
+            with open('server_config.json', 'r') as f:
+                logger.info(f"server_config.json contents: {f.read()}")
+        except Exception as e:
+            logger.error(f"Could not read server_config.json: {e}")
+    logger.info("=" * 60)
+    
     if '--stop' in sys.argv:
         try:
             import psutil
@@ -601,14 +934,45 @@ if __name__ == "__main__":
         stop_all_agents()
         sys.exit(0)
 
-    # Uncomment the next line to run in background
-    # ensure_background()
+    # Run in background unless --foreground flag is passed
+    if '--foreground' not in sys.argv and '--fg' not in sys.argv:
+        ensure_background()
 
     write_pid()
+    
+    # Set up exception handler for asyncio to catch unhandled exceptions
+    def exception_handler(loop, context):
+        logger.error("=" * 60)
+        logger.error("UNHANDLED EXCEPTION IN ASYNCIO EVENT LOOP")
+        logger.error("=" * 60)
+        logger.error(f"Context: {context}")
+        exception = context.get('exception')
+        if exception:
+            logger.error(f"Exception type: {type(exception).__name__}")
+            logger.error(f"Exception: {exception}", exc_info=exception)
+        logger.error("=" * 60)
+    
     try:
-        asyncio.run(agent_main())
+        logger.info("Starting agent main loop...")
+        loop = asyncio.new_event_loop()
+        loop.set_exception_handler(exception_handler)
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(agent_main())
+        loop.close()
     except KeyboardInterrupt:
         logger.info("Node agent stopped by user")
         print("\nNode agent stopped.")
+    except ImportError as e:
+        logger.error(f"✗ Missing required module: {e}", exc_info=True)
+        logger.error("Please ensure all requirements are installed: pip install -r requirements.txt")
+        print(f"\n✗ ERROR: Missing required module: {e}")
+        print("Please run: pip install -r requirements.txt")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"✗ Fatal error in agent main: {e}", exc_info=True)
+        print(f"\n✗ FATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
     finally:
         remove_pid()

@@ -24,6 +24,27 @@ from .node_serializers import (
 
 class NodeViewSet(viewsets.ModelViewSet):
 
+    def destroy(self, request, *args, **kwargs):
+        """Delete a node and cleanup SSH credentials from Secret Manager"""
+        from .credential_manager import delete_node_ssh_credentials
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        node = self.get_object()
+        node_id = node.id
+        
+        try:
+            # Delete SSH credentials from Secret Manager
+            logger.info(f"Deleting SSH credentials for node {node_id}")
+            delete_node_ssh_credentials(node_id, user=request.user)
+            logger.info(f"Successfully deleted credentials for node {node_id}")
+        except Exception as e:
+            logger.warning(f"Failed to delete credentials for node {node_id}: {e}")
+            # Continue with node deletion even if credential cleanup fails
+        
+        # Delete the node
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=['get'])
     def verification_code(self, request, pk=None):
         """Fetch the verification code for this node (for onboarding UI)"""
@@ -399,10 +420,21 @@ class NodeViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['get'])
     def latest_metrics(self, request, pk=None):
-        """Get latest metrics for this node"""
-        node = self.get_object()
-        latest = node.metrics.first()
+        """Get latest metrics for this node - fetches live via WebSocket proxy"""
+        from .node_api_client import call_node_api_sync
         
+        node = self.get_object()
+        
+        # Try to fetch live metrics via WebSocket proxy
+        try:
+            result = call_node_api_sync(node.id, 'collect_metrics', {})
+            if result and not result.get('error'):
+                return Response(result)
+        except Exception as e:
+            logger.error(f"[LATEST_METRICS] Failed to fetch live metrics for {node.id}: {e}")
+        
+        # Fallback to database metrics if WebSocket fails
+        latest = node.metrics.first()
         if not latest:
             return Response({'error': 'No metrics available'}, status=status.HTTP_404_NOT_FOUND)
         

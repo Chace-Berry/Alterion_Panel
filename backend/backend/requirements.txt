@@ -14,7 +14,7 @@ celery
 django-celery-beat
 django-celery-results
 channels
-daphne
+uvicorn
 django-oauth-toolkit
 PyJWT
 gunicorn

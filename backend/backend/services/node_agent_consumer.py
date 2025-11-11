@@ -6,6 +6,8 @@ import base64
 import logging
 import asyncio
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
+from urllib.parse import parse_qs
+from channels.db import database_sync_to_async
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -14,14 +16,51 @@ class NodeAgentConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.pending_verifications = {}  # Track pending verification requests
+        self.pending_api_requests = {}  # Track pending API requests
         self.log_watch_task = None
+        self.is_agent = False  # Track if this connection is an agent
+        self.is_authenticated = False  # Track if user is authenticated
+        self.user = None  # Store authenticated user
+    
+    @database_sync_to_async
+    def get_user_from_token(self, token):
+        """Validate OAuth2 token and get user"""
+        from oauth2_provider.models import AccessToken
+        from django.utils import timezone
+        try:
+            access_token = AccessToken.objects.select_related('user').get(
+                token=token,
+                expires__gt=timezone.now()
+            )
+            return access_token.user
+        except AccessToken.DoesNotExist:
+            return None
     
     async def connect(self):
         self.serverid = self.scope['url_route']['kwargs']['serverid']
         self.group_name = f"node_agent_{self.serverid}"
+        
+        logger.info(f"[CONNECT] New WebSocket connection attempt for serverid: {self.serverid}")
+        
+        # Check for authentication token in query string
+        query_string = self.scope.get('query_string', b'').decode()
+        query_params = parse_qs(query_string)
+        token = query_params.get('token', [None])[0]
+        
+        logger.info(f"[CONNECT] Query string: {query_string}, has token: {bool(token)}")
+        
+        if token:
+            # Validate token and get user
+            self.user = await self.get_user_from_token(token)
+            if self.user:
+                self.is_authenticated = True
+                logger.info(f"[CONNECT] Authenticated user: {self.user.username}")
+            else:
+                logger.warning(f"[CONNECT] Invalid token provided")
+        
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
-        logger.info(f"[CONNECT] WebSocket connected for serverid: {self.serverid}, group: {self.group_name}")
+        logger.info(f"[CONNECT] WebSocket connected - serverid: {self.serverid}, group: {self.group_name}, auth: {self.is_authenticated}, is_agent: {self.is_agent}")
 
     async def disconnect(self, close_code):
         # Clean up log watching task
@@ -36,6 +75,11 @@ class NodeAgentConsumer(AsyncWebsocketConsumer):
             if not future.done():
                 future.cancel()
         self.pending_verifications.clear()
+        # Clean up any pending API requests
+        for future in self.pending_api_requests.values():
+            if not future.done():
+                future.cancel()
+        self.pending_api_requests.clear()
         # Remove from group
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
         logger.info(f"[DISCONNECT] WebSocket disconnected for serverid: {self.serverid}, group: {self.group_name}")
@@ -47,10 +91,15 @@ class NodeAgentConsumer(AsyncWebsocketConsumer):
 
             # --- FRONTEND CODE VERIFICATION REQUEST ---
             if msg.get("action") == "verify_code":
+                # Allow verification requests without authentication
+                # Agents authenticate via crypto handshake after verification
+                # Frontend can also verify codes (they will use OAuth2 for subsequent operations)
+                
                 code = msg.get("code")
                 verification_id = msg.get("verification_id") or f"verify_{asyncio.get_event_loop().time()}"
 
-                logger.info(f"[RECEIVE] Code verification request - ID: {verification_id}, Code: {code}")
+                user_info = self.user.username if self.user else "unauthenticated"
+                logger.info(f"[RECEIVE] Code verification request - ID: {verification_id}, Code: {code}, User: {user_info}")
 
                 # Create a Future to wait for agent response
                 future = asyncio.Future()
@@ -94,6 +143,78 @@ class NodeAgentConsumer(AsyncWebsocketConsumer):
                         "type": "forward_to_frontend",
                         "verification_id": verification_id,
                         "result": msg.get("result")
+                    }
+                )
+                return
+
+            # --- API REQUEST (from frontend/backend to agent) ---
+            if msg.get("type") == "api_request" and not self.is_agent:
+                # Require authentication for API requests
+                if not self.is_authenticated:
+                    logger.warning(f"[RECEIVE] Unauthenticated API request rejected")
+                    await self.send(json.dumps({
+                        "type": "api_response",
+                        "error": "Authentication required"
+                    }))
+                    return
+                
+                api_name = msg.get("api")
+                payload = msg.get("payload", {})
+                request_id = msg.get("request_id") or f"api_{asyncio.get_event_loop().time()}"
+
+                logger.info(f"[RECEIVE] API request - ID: {request_id}, API: {api_name}, User: {self.user.username}")
+
+                # Create a Future to wait for agent response
+                future = asyncio.Future()
+                self.pending_api_requests[request_id] = future
+
+                # Forward to agent(s) via group
+                await self.channel_layer.group_send(
+                    self.group_name,
+                    {
+                        "type": "forward_api_to_agent",
+                        "api": api_name,
+                        "payload": payload,
+                        "request_id": request_id
+                    }
+                )
+                logger.info(f"[RECEIVE] Forwarded API request to agent group")
+
+                try:
+                    # Wait for agent response (with timeout)
+                    result = await asyncio.wait_for(future, timeout=30)
+                    logger.info(f"[RECEIVE] API response received for {api_name}")
+                    await self.send(json.dumps({
+                        "type": "api_response",
+                        "api": api_name,
+                        "request_id": request_id,
+                        "result": result
+                    }))
+                except asyncio.TimeoutError:
+                    logger.error(f"[RECEIVE] API request timeout for ID: {request_id}")
+                    await self.send(json.dumps({
+                        "type": "api_response",
+                        "api": api_name,
+                        "request_id": request_id,
+                        "error": "Timeout waiting for agent response"
+                    }))
+                finally:
+                    self.pending_api_requests.pop(request_id, None)
+                return
+
+            # --- API RESPONSE (from agent to backend/frontend) ---
+            if msg.get("type") == "api_response" and self.is_agent:
+                request_id = msg.get("request_id")
+                result = msg.get("result")
+                logger.info(f"[RECEIVE] API response from agent - ID: {request_id}")
+
+                # Forward result to all group members (frontend/backend)
+                await self.channel_layer.group_send(
+                    self.group_name,
+                    {
+                        "type": "forward_api_to_frontend",
+                        "request_id": request_id,
+                        "result": result
                     }
                 )
                 return
@@ -198,23 +319,40 @@ class NodeAgentConsumer(AsyncWebsocketConsumer):
                             ip_address = payload_ip if payload_ip and payload_ip != "0.0.0.0" else client_ip or "0.0.0.0"
                             hostname = payload.get("hostname") or node_id
                             username = payload.get("username") or "root"
+                            sftp_port = payload.get("sftp_port")  # Local SFTP port from agent
+                            
+                            # Check if node exists and preserve its status if already verified
+                            existing_node = await sync_to_async(Node.objects.filter(id=node_id).first)()
+                            node_status = "pending"
+                            if existing_node and existing_node.status in ["online", "verified"]:
+                                node_status = existing_node.status
+                                logger.info(f"[RECEIVE] Preserving status '{node_status}' for existing node {node_id}")
+                            
+                            # Prepare defaults dict
+                            node_defaults = {
+                                "name": hostname,
+                                "hostname": hostname,
+                                "ip_address": ip_address,
+                                "port": payload.get("port", 22),
+                                "node_type": "server",
+                                "auth_key": agent_pubkey_pem.decode(errors="ignore"),
+                                "username": username,
+                                "status": node_status,
+                                "last_seen": timezone.now(),
+                                "owner": owner,
+                                "notes": code
+                            }
+                            
+                            # Add SFTP port to notes - backend will proxy SFTP via WebSocket
+                            if sftp_port:
+                                node_defaults["notes"] = f"{code}|sftp:{sftp_port}"
+                                logger.info(f"[RECEIVE] Node {node_id} registered with SFTP port {sftp_port}")
+                            
                             await sync_to_async(Node.objects.update_or_create)(
                                 id=node_id,
-                                defaults={
-                                    "name": hostname,
-                                    "hostname": hostname,
-                                    "ip_address": ip_address,
-                                    "port": payload.get("port", 22),
-                                    "node_type": "server",
-                                    "auth_key": agent_pubkey_pem.decode(errors="ignore"),
-                                    "username": username,
-                                    "status": "pending",
-                                    "last_seen": timezone.now(),
-                                    "owner": owner,
-                                    "notes": code
-                                }
+                                defaults=node_defaults
                             )
-                            logger.info(f"[RECEIVE] Added/updated pending Node {node_id} for owner {owner} (ip={ip_address})")
+                            logger.info(f"[RECEIVE] Added/updated Node {node_id} with status '{node_status}' for owner {owner} (ip={ip_address})")
                     except Exception as e:
                         logger.error(f"[RECEIVE] Failed to add pending Node: {e}", exc_info=True)
                 except Exception as e:
@@ -229,11 +367,22 @@ class NodeAgentConsumer(AsyncWebsocketConsumer):
     # Handler for group_send to agent(s)
     async def forward_to_agent(self, event):
         # Only agent should process this
-        if hasattr(self, "is_agent") and self.is_agent:
+        if self.is_agent:
             await self.send(json.dumps({
                 "type": "verify_code",
                 "code": event["code"],
                 "verification_id": event["verification_id"]
+            }))
+
+    # Handler for group_send API requests to agent(s)
+    async def forward_api_to_agent(self, event):
+        # Only agent should process this
+        if self.is_agent:
+            await self.send(json.dumps({
+                "type": "api_request",
+                "api": event["api"],
+                "payload": event["payload"],
+                "request_id": event["request_id"]
             }))
 
     # Handler for group_send to frontend(s)
@@ -268,3 +417,21 @@ class NodeAgentConsumer(AsyncWebsocketConsumer):
                 logger.info(f"[GROUP] Node {node_id} status updated to 'online' and last_seen set")
             except Exception as e:
                 logger.error(f"[GROUP] Failed to update Node status: {e}", exc_info=True)
+
+    # Handler for group_send API responses to frontend(s)
+    async def forward_api_to_frontend(self, event):
+        request_id = event["request_id"]
+        result = event["result"]
+        
+        # Resolve the future if this connection is waiting for this response
+        if request_id in self.pending_api_requests:
+            self.pending_api_requests[request_id].set_result(result)
+            logger.info(f"[GROUP] Resolved API request future for ID: {request_id}")
+        
+        # Also broadcast to all frontend connections in the group
+        if not self.is_agent:
+            await self.send(json.dumps({
+                "type": "api_response",
+                "request_id": request_id,
+                "result": result
+            }))
