@@ -74,7 +74,6 @@ from pathlib import Path
 from datetime import datetime
 import psutil
 import node_crypto_utils as crypto_utils
-from sftp_server import SFTPServer
 
 # Base configuration - server_url must be provided via server_config.json
 AGENT_CONFIG = {
@@ -462,26 +461,6 @@ async def agent_main():
         logger.error("agent_main() exiting due to identity error")
         return
 
-    # Start SFTP server for direct file access
-    logger.info("Starting SFTP server...")
-    sftp_server = SFTPServer(port=0)  # Auto-select port
-    sftp_server.start()
-    
-    # Wait a moment for server to start
-    import time
-    time.sleep(0.5)
-    sftp_port = sftp_server.get_port()
-    if sftp_port:
-        logger.info(f"✓ SFTP server started on port {sftp_port}")
-    else:
-        logger.error("✗ SFTP server failed to start")
-        sftp_port = None
-    
-    # Note: For production, SFTP traffic will be proxied through WebSocket connection
-    # No additional tunneling needed - backend will connect via WebSocket proxy
-    # SFTP server runs locally on node, backend sends commands via WebSocket
-    logger.info(f"SFTP server ready on localhost:{sftp_port} (will be accessed via WebSocket proxy)")
-
     logger.info("Entering main connection loop...")
     
     loop_count = 0
@@ -589,8 +568,7 @@ async def agent_main():
                 # Step 2: Send encrypted registration
                 reg_payload = {
                     "action": "register",
-                    "serverid": identity["node_uid"],
-                    "sftp_port": sftp_port  # Local SFTP port (backend will proxy via WebSocket)
+                    "serverid": identity["node_uid"]
                 }
 
                 logger.info("→ Sending encrypted registration...")
@@ -718,10 +696,10 @@ async def agent_main():
 
                             # API to module mapping:
                             #   - collect_metrics: metrics (system metrics)
-                            #   - list_files, upload_file, create_directory, delete, rename, read_file, write_file: sftp (file operations)
+                            #   - list_files, upload_file, create_directory, delete, rename, read_file, write_file: file operations
                             #   - terminal_open: terminal (persistent terminal session)
                             #   - nlb_status: nlb (node load balancing)
-                            from functions import metrics, terminal, sftp, nlb
+                            from functions import metrics, terminal, file_ops, nlb
 
                             try:
                                 # Metrics API
@@ -735,12 +713,12 @@ async def agent_main():
                                     })
                                     logger.info(f"[API_PROXY] Sent/Queued API response for {api}")
                                 
-                                # SFTP/File Manager APIs
+                                # File Manager APIs
                                 elif api == "list_files":
                                     path = payload.get("path", ".")
-                                    logger.info(f"[API_PROXY] Calling sftp.list_files with path: {path}")
-                                    result = await sftp.list_files(path)
-                                    logger.info(f"[API_PROXY] sftp.list_files returned: {result.keys() if isinstance(result, dict) else type(result)}")
+                                    logger.info(f"[API_PROXY] Calling file_ops.list_files with path: {path}")
+                                    result = await file_ops.list_files(path)
+                                    logger.info(f"[API_PROXY] file_ops.list_files returned: {result.keys() if isinstance(result, dict) else type(result)}")
                                     if isinstance(result, dict) and 'error' in result:
                                         logger.error(f"[API_PROXY] list_files error: {result['error']}")
                                     await _try_send_or_queue(ws, {
@@ -758,7 +736,7 @@ async def agent_main():
                                     # Decode base64 if needed (base64 already imported at module level)
                                     if file_bytes and isinstance(file_bytes, str):
                                         file_bytes = base64.b64decode(file_bytes)
-                                    result = await sftp.upload_file(path, file_name, file_bytes)
+                                    result = await file_ops.upload_file(path, file_name, file_bytes)
                                     await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
@@ -769,7 +747,7 @@ async def agent_main():
                                 
                                 elif api == "create_directory":
                                     path = payload.get("path")
-                                    result = await sftp.create_directory(path)
+                                    result = await file_ops.create_directory(path)
                                     await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
@@ -780,7 +758,7 @@ async def agent_main():
                                 
                                 elif api == "delete":
                                     path = payload.get("path")
-                                    result = await sftp.delete(path)
+                                    result = await file_ops.delete(path)
                                     await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
@@ -792,7 +770,7 @@ async def agent_main():
                                 elif api == "rename":
                                     old_path = payload.get("old_path")
                                     new_path = payload.get("new_path")
-                                    result = await sftp.rename(old_path, new_path)
+                                    result = await file_ops.rename(old_path, new_path)
                                     await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
@@ -803,9 +781,9 @@ async def agent_main():
                                 
                                 elif api == "read_file":
                                     path = payload.get("path")
-                                    logger.info(f"[API_PROXY] Calling sftp.read_file with path: {path}")
-                                    result = await sftp.read_file(path)
-                                    logger.info(f"[API_PROXY] sftp.read_file returned: {result.keys() if isinstance(result, dict) else type(result)}")
+                                    logger.info(f"[API_PROXY] Calling file_ops.read_file with path: {path}")
+                                    result = await file_ops.read_file(path)
+                                    logger.info(f"[API_PROXY] file_ops.read_file returned: {result.keys() if isinstance(result, dict) else type(result)}")
                                     if isinstance(result, dict) and 'error' in result:
                                         logger.error(f"[API_PROXY] read_file error: {result['error']}")
                                     await _try_send_or_queue(ws, {
@@ -819,7 +797,7 @@ async def agent_main():
                                 elif api == "write_file":
                                     path = payload.get("path")
                                     content = payload.get("content")
-                                    result = await sftp.write_file(path, content)
+                                    result = await file_ops.write_file(path, content)
                                     await _try_send_or_queue(ws, {
                                         "type": "api_response",
                                         "api": api,
