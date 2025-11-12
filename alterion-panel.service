@@ -1,0 +1,44 @@
+[Unit]
+Description=Alterion Panel - Server Management Dashboard
+After=network.target redis.service
+Wants=redis.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/alterion-panel/backend/backend
+Environment="PATH=/opt/alterion-panel/venv/bin"
+Environment="DJANGO_SETTINGS_MODULE=backend.settings"
+
+# Gunicorn with Uvicorn workers for async/WebSocket support
+ExecStart=/opt/alterion-panel/venv/bin/gunicorn backend.asgi:application \
+    --bind 0.0.0.0:13527 \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --timeout 120 \
+    --access-logfile /var/log/alterion-panel/access.log \
+    --error-logfile /var/log/alterion-panel/error.log \
+    --log-level info \
+    --capture-output \
+    --enable-stdio-inheritance
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=5min
+StartLimitBurst=5
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/alterion-panel /var/log/alterion-panel
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target
