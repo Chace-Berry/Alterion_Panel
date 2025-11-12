@@ -9,7 +9,10 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework import status
 import subprocess
 import os
-import winreg
+try:
+    import winreg
+except ImportError:
+    winreg = None  # Not available on non-Windows systems
 import uuid
 import hashlib
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -156,7 +159,7 @@ class MetricsAPIView(APIView):
         }
         
         try:
-            if platform.system() == "Windows":
+            if platform.system() == "Windows" and winreg is not None:
 
                 try:
 
