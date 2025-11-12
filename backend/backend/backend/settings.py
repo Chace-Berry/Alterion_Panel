@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'accounts',
     'corsheaders',
     'sslserver',
+    'pagebuilder',
 ]
 
 MIDDLEWARE = [

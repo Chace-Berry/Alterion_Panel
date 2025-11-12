@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/alterion/panel/', include('dashboard.urls')),
     path('api/alterion/panel/', include('services.urls')),
     path('api/alterion/panel/auth/', include('authentication.urls')),
+    path('api/alterion/panel/pagebuilder/', include('pagebuilder.urls')),
 
     path('static/favicon.ico', favicon),
 

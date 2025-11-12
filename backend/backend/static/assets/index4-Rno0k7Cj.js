@@ -1,1 +1,0 @@
-import{j as s}from"./index1-DU0OaFhi.js";const a=()=>s.jsxs("div",{className:"card",children:[s.jsx("h2",{children:"Databases"}),s.jsx("div",{children:"Manage your databases here."})]});export{a as D};
