@@ -25,13 +25,13 @@ SECRET_KEY = 'django-insecure-07jj1fvq#v29s9r7i%k!h0is2=l4bay1yll8o5z1=9=f5f2=ud
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost','127.0.0.1',"alterion-panel.coraldune.com"]
+ALLOWED_HOSTS = ['localhost','127.0.0.1',]
 
 # Server Port Configuration
 PORT = 13527  # Fixed HTTPS port for Alterion Panel
 
 # Backend WebSocket Host (for node API client)
-BACKEND_WS_HOST = "https://alterion-panel.coraldune.com/"
+BACKEND_WS_HOST = "wss://localhost:13527"
 
 # Application definition
 
@@ -148,22 +148,36 @@ LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'log.log',
+            'formatter': 'verbose',
+        },
+    },
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name}: {message}',
+            'style': '{',
         },
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': ['file'],
         'level': 'INFO',
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
+            'handlers': ['file'],
             'level': 'INFO',
             'propagate': True,
         },
         'oauth2_provider': {
-            'handlers': ['console'],
+            'handlers': ['file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'authmiddleware': {
+            'handlers': ['file'],
             'level': 'INFO',
             'propagate': True,
         },
