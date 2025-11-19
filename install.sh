@@ -17,8 +17,8 @@ NC='\033[0m' # No Color
 # Configuration
 INSTALL_DIR="/opt/alterion-panel"
 LOG_DIR="/var/log/alterion-panel"
-SERVICE_USER="www-data"
-SERVICE_GROUP="www-data"
+SERVICE_USER="alterion-panel"
+SERVICE_GROUP="alterion-panel"
 PYTHON_VERSION="python3"
 PORT=13527
 
@@ -67,12 +67,16 @@ if ! command -v rsync &> /dev/null; then
     apt-get install -y rsync
 fi
 
-# Create service user if it doesn't exist
+# Create service user/group if it doesn't exist
 if ! id "$SERVICE_USER" &>/dev/null; then
-    echo -e "${YELLOW}Creating service user: $SERVICE_USER${NC}"
-    useradd -r -s /bin/bash -d $INSTALL_DIR $SERVICE_USER
+    echo -e "${YELLOW}Creating service user: $SERVICE_USER as a regular user${NC}"
+    useradd --create-home --shell /bin/bash $SERVICE_USER
 fi
-echo -e "${GREEN}✓${NC} Service user $SERVICE_USER exists"
+if ! getent group "$SERVICE_GROUP" &>/dev/null; then
+    echo -e "${YELLOW}Creating service group: $SERVICE_GROUP${NC}"
+    groupadd --system $SERVICE_GROUP
+fi
+echo -e "${GREEN}✓${NC} Service user/group $SERVICE_USER/$SERVICE_GROUP exists"
 
 # Create directories
 echo -e "${BLUE}Creating directories...${NC}"
@@ -114,27 +118,24 @@ echo -e "${GREEN}✓${NC} Dependencies installed"
 ENV_FILE="$INSTALL_DIR/backend/backend/.env"
 if [ ! -f "$ENV_FILE" ]; then
     echo -e "${BLUE}Creating .env configuration file...${NC}"
-    SECRET_KEY=$(sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())')
+    
+    # Generate Fernet key for encryption
+    FERNET_KEY=$(sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
     
     sudo -u $SERVICE_USER tee "$ENV_FILE" > /dev/null << EOF
-# Django Settings
-SECRET_KEY='$SECRET_KEY'
-DEBUG=False
-ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Database (SQLite)
-DATABASE_URL=sqlite:///$INSTALL_DIR/backend/backend/db.sqlite3
-
-# Redis Cache
-REDIS_URL=redis://localhost:6379/0
-
-# Security
-SECURE_SSL_REDIRECT=False
-SESSION_COOKIE_SECURE=False
-CSRF_COOKIE_SECURE=False
+ALTERION_PK_KEY=$FERNET_KEY
 EOF
     chmod 600 "$ENV_FILE"
-    echo -e "${GREEN}✓${NC} .env file created"
+    chown $SERVICE_USER:$SERVICE_GROUP "$ENV_FILE"
+    sync  # Force write to disk
+    
+    # Verify the file was created and has content
+    if [ -s "$ENV_FILE" ]; then
+        echo -e "${GREEN}✓${NC} .env file created with encryption key"
+    else
+        echo -e "${RED}✗${NC} Failed to create .env file"
+        exit 1
+    fi
 else
     echo -e "${YELLOW}⚠${NC} .env file already exists, skipping..."
 fi
@@ -216,6 +217,203 @@ else:
 EOF
 echo -e "${GREEN}✓${NC} Admin user created"
 
+# Create OAuth2 Provider Application
+echo -e "${BLUE}Setting up OAuth2 provider application...${NC}"
+sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python $INSTALL_DIR/backend/backend/manage.py shell << 'EOF'
+from oauth2_provider.models import Application
+from django.contrib.auth import get_user_model
+import secrets
+
+User = get_user_model()
+
+# Get the first superuser
+user = User.objects.filter(is_superuser=True).first()
+
+if user:
+    # Fixed client_id for consistency across installations
+    client_id = "XpjXSgFQQ30AQ9RWpm8NsMULl3pcwIt5i9QfdksJ"
+    
+    # Generate unique client_secret for this server
+    client_secret = secrets.token_urlsafe(64)
+    
+    # Check if application already exists
+    app, created = Application.objects.get_or_create(
+        client_id=client_id,
+        defaults={
+            'user': user,
+            'redirect_uris': '',
+            'client_type': Application.CLIENT_PUBLIC,
+            'authorization_grant_type': Application.GRANT_PASSWORD,
+            'name': 'Alterion Panel',
+            'skip_authorization': True,
+        }
+    )
+    
+    if created:
+        # Set the client_secret (it will be hashed automatically)
+        app.client_secret = client_secret
+        app.save()
+        print(f'OAuth2 Application created')
+        print(f'Client ID: {client_id}')
+        print(f'Client Secret: {client_secret}')
+    else:
+        print('OAuth2 Application already exists')
+        print(f'Client ID: {client_id}')
+else:
+    print('No superuser found to assign OAuth2 application')
+EOF
+echo -e "${GREEN}✓${NC} OAuth2 provider configured"
+
+# Setup Domain Configuration
+echo ""
+echo -e "${BLUE}╔═══════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║   Domain Configuration                 ║${NC}"
+echo -e "${BLUE}╚═══════════════════════════════════════╝${NC}"
+echo ""
+
+read -p "Enter your domain name (e.g., example.com): " USER_DOMAIN
+
+while [[ -z "$USER_DOMAIN" ]]; do
+    echo -e "${RED}Domain cannot be empty${NC}"
+    read -p "Enter your domain name: " USER_DOMAIN
+done
+
+DOMAIN="$USER_DOMAIN"
+ALTERION_SUBDOMAIN="alterion.$DOMAIN"
+
+echo ""
+echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════╗${NC}"
+echo -e "${YELLOW}║   DNS Configuration Required                               ║${NC}"
+echo -e "${YELLOW}╚═══════════════════════════════════════════════════════════╝${NC}"
+echo -e "${YELLOW}Please add the following DNS record to your domain:${NC}"
+echo ""
+echo -e "  Type: ${GREEN}A${NC}"
+echo -e "  Name: ${GREEN}alterion${NC}"
+echo -e "  Value: ${GREEN}$(curl -s ifconfig.me)${NC} (your server IP)"
+echo ""
+echo -e "Or:"
+echo ""
+echo -e "  Type: ${GREEN}CNAME${NC}"
+echo -e "  Name: ${GREEN}alterion${NC}"
+echo -e "  Value: ${GREEN}$DOMAIN${NC}"
+echo ""
+read -p "Press Enter after you've configured DNS..."
+
+# Install Nginx if not present
+if ! command -v nginx &> /dev/null; then
+    echo -e "${YELLOW}Installing Nginx...${NC}"
+    apt-get update
+    apt-get install -y nginx
+fi
+echo -e "${GREEN}✓${NC} Nginx is installed"
+
+# Install Certbot for Let's Encrypt
+if ! command -v certbot &> /dev/null; then
+    echo -e "${YELLOW}Installing Certbot...${NC}"
+    apt-get install -y certbot python3-certbot-nginx
+fi
+echo -e "${GREEN}✓${NC} Certbot is installed"
+
+# Get SSL certificate
+echo -e "${BLUE}Obtaining SSL certificate for $ALTERION_SUBDOMAIN...${NC}"
+certbot certonly --nginx -d $ALTERION_SUBDOMAIN --non-interactive --agree-tos --email admin@$DOMAIN || {
+    echo -e "${RED}✗${NC} Failed to obtain SSL certificate."
+    echo -e "${RED}Please ensure DNS is configured correctly and try again.${NC}"
+    exit 1
+}
+
+SSL_CERT="/etc/letsencrypt/live/$ALTERION_SUBDOMAIN/fullchain.pem"
+SSL_KEY="/etc/letsencrypt/live/$ALTERION_SUBDOMAIN/privkey.pem"
+echo -e "${GREEN}✓${NC} SSL certificate obtained"
+
+# Create Nginx configuration
+echo -e "${BLUE}Configuring Nginx...${NC}"
+NGINX_CONF="/etc/nginx/sites-available/alterion-panel"
+
+cat > "$NGINX_CONF" << 'NGINXEOF'
+upstream alterion_backend {
+    server 127.0.0.1:13527;
+}
+
+server {
+    listen 80;
+    server_name DOMAIN_PLACEHOLDER;
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name DOMAIN_PLACEHOLDER;
+
+    ssl_certificate SSL_CERT_PLACEHOLDER;
+    ssl_certificate_key SSL_KEY_PLACEHOLDER;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+
+    client_max_body_size 100M;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+
+    # Static files
+    location /static/ {
+        alias /opt/alterion-panel/backend/backend/staticfiles/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location /media/ {
+        alias /opt/alterion-panel/backend/backend/media/;
+        expires 7d;
+    }
+
+    # WebSocket support
+    location /ws/ {
+        proxy_pass http://alterion_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400;
+    }
+
+    # Regular HTTP
+    location / {
+        proxy_pass http://alterion_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+    }
+}
+NGINXEOF
+
+# Replace placeholders
+sed -i "s|DOMAIN_PLACEHOLDER|$ALTERION_SUBDOMAIN|g" "$NGINX_CONF"
+sed -i "s|SSL_CERT_PLACEHOLDER|$SSL_CERT|g" "$NGINX_CONF"
+sed -i "s|SSL_KEY_PLACEHOLDER|$SSL_KEY|g" "$NGINX_CONF"
+
+# Enable site
+ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+
+# Test Nginx configuration
+nginx -t || {
+    echo -e "${RED}✗${NC} Nginx configuration test failed"
+    exit 1
+}
+
+# Reload Nginx
+systemctl restart nginx
+echo -e "${GREEN}✓${NC} Nginx configured and running"
+
 # Install systemd service
 echo ""
 echo -e "${BLUE}Installing systemd service...${NC}"
@@ -254,8 +452,8 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo -e "${BLUE}Service Information:${NC}"
 echo -e "  Status:   ${GREEN}Active${NC}"
-echo -e "  Port:     ${YELLOW}$PORT${NC}"
-echo -e "  URL:      ${YELLOW}http://localhost:$PORT${NC}"
+echo -e "  Backend:  ${YELLOW}Port $PORT${NC}"
+echo -e "  URL:      ${GREEN}https://$ALTERION_SUBDOMAIN${NC}"
 echo ""
 echo -e "${BLUE}Management Commands:${NC}"
 echo -e "  Start:    ${YELLOW}systemctl start alterion-panel${NC}"
@@ -273,14 +471,12 @@ echo -e "  Username: ${GREEN}$ADMIN_USERNAME${NC}"
 echo -e "  Email:    ${GREEN}$ADMIN_EMAIL${NC}"
 echo ""
 echo -e "${BLUE}Next Steps:${NC}"
-echo -e "  1. Update ALLOWED_HOSTS in: ${YELLOW}$ENV_FILE${NC}"
-echo -e "     Add your server IP or domain name"
+echo -e "  1. Configure firewall:"
+echo -e "     ${YELLOW}ufw allow 80/tcp${NC}"
+echo -e "     ${YELLOW}ufw allow 443/tcp${NC}"
 echo ""
-echo -e "  2. Configure firewall:"
-echo -e "     ${YELLOW}ufw allow $PORT${NC}"
+echo -e "  2. Access panel at: ${GREEN}https://$ALTERION_SUBDOMAIN${NC}"
+echo -e "     Login with username: ${GREEN}$ADMIN_USERNAME${NC}"
 echo ""
-echo -e "  3. Access panel at: ${YELLOW}http://your-server-ip:$PORT${NC}"
-echo -e "     Login with the admin credentials you just created"
-echo ""
-echo -e "${YELLOW}For production use, consider setting up Nginx as a reverse proxy with SSL${NC}"
+echo -e "${GREEN}SSL Certificate auto-renewal is configured via Certbot${NC}"
 echo ""

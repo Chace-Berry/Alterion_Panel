@@ -4,10 +4,14 @@ Uses credentials from Secret Manager to establish SSH/SFTP connections
 """
 import paramiko
 import logging
+from datetime import datetime
 from .credential_manager import get_node_ssh_credentials
 from .node_models import Node
 
 logger = logging.getLogger(__name__)
+
+# Global cache for SFTP connections
+_node_sftp_connections = {}
 
 
 def get_node_sftp_connection(node_id):
@@ -16,6 +20,26 @@ def get_node_sftp_connection(node_id):
     Returns (ssh_client, sftp_client) tuple
     Raises exception on failure
     """
+    # Check if we have a cached connection
+    if node_id in _node_sftp_connections:
+        cached_conn = _node_sftp_connections[node_id]
+        ssh, sftp, timestamp = cached_conn
+        
+        # Check if connection is still alive (within 30 minutes)
+        if (datetime.now() - timestamp).total_seconds() < 1800:
+            try:
+                # Test connection
+                sftp.stat('/')
+                return ssh, sftp
+            except:
+                # Connection is dead, remove from cache
+                try:
+                    sftp.close()
+                    ssh.close()
+                except:
+                    pass
+                del _node_sftp_connections[node_id]
+    
     try:
         # Get node from database
         node = Node.objects.get(id=node_id)
@@ -47,6 +71,10 @@ def get_node_sftp_connection(node_id):
         sftp = ssh.open_sftp()
         
         logger.info(f"SFTP connection established to node {node_id}")
+        
+        # Cache the connection
+        _node_sftp_connections[node_id] = (ssh, sftp, datetime.now())
+        
         return ssh, sftp
         
     except Node.DoesNotExist:
@@ -61,6 +89,18 @@ def get_node_sftp_connection(node_id):
     except Exception as e:
         logger.error(f"Failed to connect to node {node_id}: {e}")
         raise
+
+
+def close_node_sftp_connection(node_id):
+    """Close cached SFTP connection for a node"""
+    if node_id in _node_sftp_connections:
+        try:
+            ssh, sftp, _ = _node_sftp_connections[node_id]
+            sftp.close()
+            ssh.close()
+        except:
+            pass
+        del _node_sftp_connections[node_id]
 
 
 def close_sftp_connection(ssh, sftp):

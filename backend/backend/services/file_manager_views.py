@@ -12,9 +12,21 @@ import paramiko
 import os
 import stat
 from datetime import datetime
-import logging
 
-logger = logging.getLogger(__name__)
+import logging
+import os
+
+# Set up dedicated file logger for file manager diagnostics
+file_manager_log_path = '/var/log/alterion-panel/file_manager_debug.log'
+os.makedirs(os.path.dirname(file_manager_log_path), exist_ok=True)
+file_manager_handler = logging.FileHandler(file_manager_log_path)
+file_manager_handler.setLevel(logging.DEBUG)
+file_manager_formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+file_manager_handler.setFormatter(file_manager_formatter)
+file_manager_logger = logging.getLogger('file_manager_debug')
+file_manager_logger.setLevel(logging.DEBUG)
+if not any(isinstance(h, logging.FileHandler) and h.baseFilename == file_manager_log_path for h in file_manager_logger.handlers):
+    file_manager_logger.addHandler(file_manager_handler)
 
 
 class FileManagerViewSet(viewsets.ViewSet):
@@ -23,9 +35,35 @@ class FileManagerViewSet(viewsets.ViewSet):
     """
     authentication_classes = [CookieOAuth2Authentication]
     permission_classes = [IsAuthenticated]
+    
+    # Class-level cache for SFTP connections
+    _sftp_connections = {}
 
     def _get_sftp_client(self, server):
-        """Establish SFTP connection to server"""
+        """Establish SFTP connection to server or return cached connection"""
+        server_id = str(server.pk)
+        
+        # Check if we have a cached connection
+        if server_id in self._sftp_connections:
+            cached_conn = self._sftp_connections[server_id]
+            ssh, sftp, timestamp = cached_conn
+            
+            # Check if connection is still alive (within 30 minutes)
+            if (datetime.now() - timestamp).total_seconds() < 1800:
+                try:
+                    # Test connection
+                    sftp.stat('/')
+                    return ssh, sftp
+                except:
+                    # Connection is dead, remove from cache
+                    try:
+                        sftp.close()
+                        ssh.close()
+                    except:
+                        pass
+                    del self._sftp_connections[server_id]
+        
+        # Create new connection
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
@@ -39,7 +77,23 @@ class FileManagerViewSet(viewsets.ViewSet):
         )
         
         sftp = ssh.open_sftp()
+        
+        # Cache the connection
+        self._sftp_connections[server_id] = (ssh, sftp, datetime.now())
+        
         return ssh, sftp
+
+    def _close_sftp_connection(self, server):
+        """Close cached SFTP connection for a server"""
+        server_id = str(server.pk)
+        if server_id in self._sftp_connections:
+            try:
+                ssh, sftp, _ = self._sftp_connections[server_id]
+                sftp.close()
+                ssh.close()
+            except:
+                pass
+            del self._sftp_connections[server_id]
 
     def _format_file_info(self, sftp, path, filename):
         """Format file information for response"""
@@ -71,16 +125,19 @@ class FileManagerViewSet(viewsets.ViewSet):
     def list_files(self, request, pk=None):
         """List files in a directory (supports local, node, and remote servers)"""
         path = request.query_params.get('path', '/')
+        use_home = request.query_params.get('use_home', 'false').lower() == 'true'
         home_directory = None
-        logger.info(f"[FILE_MANAGER] list_files called - pk: {pk}, path: {path}")
+        file_manager_logger.info(f"[FILE_MANAGER] list_files called - pk: {pk}, path: {path}, use_home: {use_home}")
         # Handle node agent requests via direct SFTP
         if pk and pk.startswith('node-'):
             from .node_sftp_client import get_node_sftp_connection, close_sftp_connection
             from .credential_manager import get_node_ssh_username
             from .node_models import Node
+            from django.core.cache import cache
+            import hashlib
             
             node_id = pk  # pk already includes 'node-' prefix
-            logger.info(f"[FILE_MANAGER] Routing to node via SFTP: {node_id}")
+            file_manager_logger.info(f"[FILE_MANAGER] Routing to node via SFTP: {node_id}")
             
             ssh = None
             sftp = None
@@ -98,65 +155,109 @@ class FileManagerViewSet(viewsets.ViewSet):
                 else:  # Linux and others
                     home_directory = f"/home/{ssh_user}" if ssh_user != 'root' else '/root'
                 
-                # If path is '/', redirect to home directory
-                if path == '/':
+                # Use home directory if requested
+                if use_home and home_directory:
                     path = home_directory
+                
+                # Check cache first (10 second cache)
+                cache_key = f"file_list_{node_id}_{hashlib.md5(path.encode()).hexdigest()}"
+                cached_data = cache.get(cache_key)
+                if cached_data:
+                    file_manager_logger.info(f"[FILE_MANAGER] Returning cached file list for {node_id}:{path}")
+                    return Response(cached_data)
                 
                 # Establish SFTP connection
                 ssh, sftp = get_node_sftp_connection(node_id)
                 
-                # List directory contents
+                # List directory contents using listdir_attr (faster - one network call)
                 items = []
-                for filename in sftp.listdir(path):
-                    file_info = self._format_file_info(sftp, path, filename)
-                    items.append(file_info)
+                for attr in sftp.listdir_attr(path):
+                    filepath = path.rstrip('/') + '/' + attr.filename if path != '/' else '/' + attr.filename
+                    is_dir = stat.S_ISDIR(attr.st_mode)
+                    
+                    items.append({
+                        'name': attr.filename,
+                        'path': filepath,
+                        'size': attr.st_size if not is_dir else 0,
+                        'modified': datetime.fromtimestamp(attr.st_mtime).isoformat(),
+                        'permissions': oct(stat.S_IMODE(attr.st_mode)),
+                        'type': 'directory' if is_dir else 'file',
+                        'is_directory': is_dir,
+                        'is_file': stat.S_ISREG(attr.st_mode),
+                        'is_link': stat.S_ISLNK(attr.st_mode),
+                    })
                 
-                logger.info(f"[FILE_MANAGER] Successfully retrieved {len(items)} files via SFTP")
-                return Response({'files': items, 'path': path, 'home_directory': home_directory})
+                file_manager_logger.info(f"[FILE_MANAGER] Successfully retrieved {len(items)} files via SFTP")
+                
+                response_data = {'files': items, 'path': path, 'home_directory': home_directory}
+                
+                # Cache for 10 seconds
+                cache.set(cache_key, response_data, 10)
+                
+                return Response(response_data)
                 
             except Exception as e:
-                logger.error(f"[FILE_MANAGER] SFTP error: {e}", exc_info=True)
+                file_manager_logger.error(f"[FILE_MANAGER] SFTP error: {e}", exc_info=True)
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            finally:
-                close_sftp_connection(ssh, sftp)
         # Handle local server requests
         elif pk and pk.startswith('local-'):
             import pathlib
             home_directory = str(pathlib.Path.home())
             try:
+                file_manager_logger.debug(f"[LOCAL] Raw path: {path}")
                 norm_path = os.path.expandvars(os.path.expanduser(path))
                 norm_path = os.path.normpath(norm_path)
                 if os.name == 'nt':
                     norm_path = str(pathlib.Path(norm_path).resolve())
+                file_manager_logger.debug(f"[LOCAL] Normalized path: {norm_path}")
                 if not os.path.exists(norm_path):
-                    return Response({'error': f'Path does not exist: {norm_path}'}, status=status.HTTP_400_BAD_REQUEST)
+                    file_manager_logger.warning(f"[LOCAL] Path does not exist: {norm_path} (raw: {path}) user: {os.getlogin()}")
+                    return Response({'error': f'Path does not exist: {norm_path}', 'raw_path': path, 'normalized_path': norm_path}, status=status.HTTP_400_BAD_REQUEST)
+                # Log type, permissions, and ownership
+                try:
+                    stat_info = os.stat(norm_path)
+                    is_dir = stat.S_ISDIR(stat_info.st_mode)
+                    perms = oct(stat.S_IMODE(stat_info.st_mode))
+                    owner = stat_info.st_uid
+                    group = stat_info.st_gid
+                    file_manager_logger.info(f"[LOCAL] Path exists: {norm_path} is_dir: {is_dir} perms: {perms} owner: {owner} group: {group}")
+                except Exception as e:
+                    file_manager_logger.error(f"[LOCAL] Error stat'ing requested path: {norm_path} - {e}", exc_info=True)
                 files = []
                 for filename in os.listdir(norm_path):
                     filepath = os.path.join(norm_path, filename)
                     try:
                         attrs = os.stat(filepath)
                         is_dir = stat.S_ISDIR(attrs.st_mode)
+                        perms = oct(stat.S_IMODE(attrs.st_mode))
+                        owner = attrs.st_uid
+                        group = attrs.st_gid
                         files.append({
                             'name': filename,
                             'path': filepath,
                             'size': attrs.st_size if not is_dir else 0,
                             'modified': datetime.fromtimestamp(attrs.st_mtime).isoformat(),
-                            'permissions': oct(stat.S_IMODE(attrs.st_mode)),
+                            'permissions': perms,
+                            'owner': owner,
+                            'group': group,
                             'type': 'directory' if is_dir else 'file',
                             'is_directory': is_dir,
                             'is_file': stat.S_ISREG(attrs.st_mode),
                             'is_link': stat.S_ISLNK(attrs.st_mode),
                         })
                     except Exception as e:
+                        file_manager_logger.error(f"[LOCAL] Error stat'ing file: {filepath} - {e}", exc_info=True)
                         files.append({
                             'name': filename,
                             'path': filepath,
                             'error': str(e)
                         })
                 files.sort(key=lambda x: (not x.get('is_directory', False), x['name'].lower()))
+                file_manager_logger.info(f"[LOCAL] Listed {len(files)} files in {norm_path}")
                 return Response({'path': norm_path, 'files': files, 'home_directory': home_directory})
             except Exception as e:
-                return Response({'error': f'Failed to list local directory: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                file_manager_logger.error(f"[LOCAL] Failed to list local directory: {e} (raw: {path}) user: {os.getlogin()}", exc_info=True)
+                return Response({'error': f'Failed to list local directory: {str(e)}', 'raw_path': path}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
             server = get_object_or_404(Server, pk=pk)
             ssh_user = getattr(server, 'ssh_user', 'root')
@@ -169,16 +270,12 @@ class FileManagerViewSet(viewsets.ViewSet):
                 home_directory = f"/home/{ssh_user}"
             try:
                 ssh, sftp = self._get_sftp_client(server)
-                try:
-                    files = []
-                    for filename in sftp.listdir(path):
-                        file_info = self._format_file_info(sftp, path, filename)
-                        files.append(file_info)
-                    files.sort(key=lambda x: (not x.get('is_directory', False), x['name'].lower()))
-                    return Response({'path': path, 'files': files, 'home_directory': home_directory})
-                finally:
-                    sftp.close()
-                    ssh.close()
+                files = []
+                for filename in sftp.listdir(path):
+                    file_info = self._format_file_info(sftp, path, filename)
+                    files.append(file_info)
+                files.sort(key=lambda x: (not x.get('is_directory', False), x['name'].lower()))
+                return Response({'path': path, 'files': files, 'home_directory': home_directory})
             except Exception as e:
                 return Response(
                     {'error': f'Failed to list directory: {str(e)}'},
@@ -420,6 +517,8 @@ class FileManagerViewSet(viewsets.ViewSet):
         # Handle node agent requests via direct SFTP
         if pk and pk.startswith('node-'):
             from .node_sftp_client import get_node_sftp_connection, close_sftp_connection
+            from django.core.cache import cache
+            import hashlib
             node_id = pk
             
             ssh = None
@@ -428,11 +527,14 @@ class FileManagerViewSet(viewsets.ViewSet):
                 ssh, sftp = get_node_sftp_connection(node_id)
                 remote_filepath = os.path.join(remote_path, file_obj.name)
                 sftp.putfo(file_obj, remote_filepath)
+                
+                # Invalidate cache for directory
+                cache_key = f"file_list_{node_id}_{hashlib.md5(remote_path.encode()).hexdigest()}"
+                cache.delete(cache_key)
+                
                 return Response({'message': 'File uploaded successfully', 'path': remote_filepath})
             except Exception as e:
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            finally:
-                close_sftp_connection(ssh, sftp)
         
         # Handle local server requests
         elif pk and pk.startswith('local-'):
@@ -448,13 +550,9 @@ class FileManagerViewSet(viewsets.ViewSet):
             server = get_object_or_404(Server, pk=pk)
             try:
                 ssh, sftp = self._get_sftp_client(server)
-                try:
-                    remote_filepath = os.path.join(remote_path, file_obj.name)
-                    sftp.putfo(file_obj, remote_filepath)
-                    return Response({'message': 'File uploaded successfully', 'path': remote_filepath})
-                finally:
-                    sftp.close()
-                    ssh.close()
+                remote_filepath = os.path.join(remote_path, file_obj.name)
+                sftp.putfo(file_obj, remote_filepath)
+                return Response({'message': 'File uploaded successfully', 'path': remote_filepath})
             except Exception as e:
                 return Response({'error': f'Failed to upload file: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -468,6 +566,8 @@ class FileManagerViewSet(viewsets.ViewSet):
         # Handle node agent requests via direct SFTP
         if pk and pk.startswith('node-'):
             from .node_sftp_client import get_node_sftp_connection, close_sftp_connection
+            from django.core.cache import cache
+            import hashlib
             node_id = pk
             
             ssh = None
@@ -475,11 +575,15 @@ class FileManagerViewSet(viewsets.ViewSet):
             try:
                 ssh, sftp = get_node_sftp_connection(node_id)
                 sftp.mkdir(path)
+                
+                # Invalidate cache for parent directory
+                parent_path = os.path.dirname(path)
+                cache_key = f"file_list_{node_id}_{hashlib.md5(parent_path.encode()).hexdigest()}"
+                cache.delete(cache_key)
+                
                 return Response({'message': 'Directory created successfully'})
             except Exception as e:
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            finally:
-                close_sftp_connection(ssh, sftp)
         
         # Handle local server requests
         elif pk and pk.startswith('local-'):
@@ -492,12 +596,8 @@ class FileManagerViewSet(viewsets.ViewSet):
             server = get_object_or_404(Server, pk=pk)
             try:
                 ssh, sftp = self._get_sftp_client(server)
-                try:
-                    sftp.mkdir(path)
-                    return Response({'message': 'Directory created successfully'})
-                finally:
-                    sftp.close()
-                    ssh.close()
+                sftp.mkdir(path)
+                return Response({'message': 'Directory created successfully'})
             except Exception as e:
                 return Response({'error': f'Failed to create directory: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -511,6 +611,8 @@ class FileManagerViewSet(viewsets.ViewSet):
         # Handle node agent requests via direct SFTP
         if pk and pk.startswith('node-'):
             from .node_sftp_client import get_node_sftp_connection, close_sftp_connection
+            from django.core.cache import cache
+            import hashlib
             import stat
             node_id = pk
             
@@ -523,11 +625,15 @@ class FileManagerViewSet(viewsets.ViewSet):
                     sftp.rmdir(path)
                 else:
                     sftp.remove(path)
+                
+                # Invalidate cache for parent directory
+                parent_path = os.path.dirname(path)
+                cache_key = f"file_list_{node_id}_{hashlib.md5(parent_path.encode()).hexdigest()}"
+                cache.delete(cache_key)
+                
                 return Response({'message': 'Deleted successfully'})
             except Exception as e:
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            finally:
-                close_sftp_connection(ssh, sftp)
         
         # Handle local server requests
         elif pk and pk.startswith('local-'):
@@ -543,16 +649,12 @@ class FileManagerViewSet(viewsets.ViewSet):
             server = get_object_or_404(Server, pk=pk)
             try:
                 ssh, sftp = self._get_sftp_client(server)
-                try:
-                    attrs = sftp.stat(path)
-                    if stat.S_ISDIR(attrs.st_mode):
-                        sftp.rmdir(path)
-                    else:
-                        sftp.remove(path)
-                    return Response({'message': 'Deleted successfully'})
-                finally:
-                    sftp.close()
-                    ssh.close()
+                attrs = sftp.stat(path)
+                if stat.S_ISDIR(attrs.st_mode):
+                    sftp.rmdir(path)
+                else:
+                    sftp.remove(path)
+                return Response({'message': 'Deleted successfully'})
             except Exception as e:
                 return Response({'error': f'Failed to delete: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -567,6 +669,8 @@ class FileManagerViewSet(viewsets.ViewSet):
         # Handle node agent requests via direct SFTP
         if pk and pk.startswith('node-'):
             from .node_sftp_client import get_node_sftp_connection, close_sftp_connection
+            from django.core.cache import cache
+            import hashlib
             node_id = pk
             
             ssh = None
@@ -574,11 +678,17 @@ class FileManagerViewSet(viewsets.ViewSet):
             try:
                 ssh, sftp = get_node_sftp_connection(node_id)
                 sftp.rename(old_path, new_path)
+                
+                # Invalidate cache for both old and new parent directories
+                old_parent = os.path.dirname(old_path)
+                new_parent = os.path.dirname(new_path)
+                cache.delete(f"file_list_{node_id}_{hashlib.md5(old_parent.encode()).hexdigest()}")
+                if old_parent != new_parent:
+                    cache.delete(f"file_list_{node_id}_{hashlib.md5(new_parent.encode()).hexdigest()}")
+                
                 return Response({'message': 'Renamed successfully'})
             except Exception as e:
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            finally:
-                close_sftp_connection(ssh, sftp)
         
         # Handle local server requests
         elif pk and pk.startswith('local-'):
@@ -591,12 +701,8 @@ class FileManagerViewSet(viewsets.ViewSet):
             server = get_object_or_404(Server, pk=pk)
             try:
                 ssh, sftp = self._get_sftp_client(server)
-                try:
-                    sftp.rename(old_path, new_path)
-                    return Response({'message': 'Renamed successfully'})
-                finally:
-                    sftp.close()
-                    ssh.close()
+                sftp.rename(old_path, new_path)
+                return Response({'message': 'Renamed successfully'})
             except Exception as e:
                 return Response({'error': f'Failed to rename: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -621,8 +727,6 @@ class FileManagerViewSet(viewsets.ViewSet):
                 return Response({'path': path, 'content': content})
             except Exception as e:
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            finally:
-                close_sftp_connection(ssh, sftp)
         
         # Handle local server requests
         elif pk and pk.startswith('local-'):
@@ -636,13 +740,9 @@ class FileManagerViewSet(viewsets.ViewSet):
             server = get_object_or_404(Server, pk=pk)
             try:
                 ssh, sftp = self._get_sftp_client(server)
-                try:
-                    with sftp.file(path, 'r') as f:
-                        content = f.read().decode('utf-8', errors='replace')
-                    return Response({'path': path, 'content': content})
-                finally:
-                    sftp.close()
-                    ssh.close()
+                with sftp.file(path, 'r') as f:
+                    content = f.read().decode('utf-8', errors='replace')
+                return Response({'path': path, 'content': content})
             except Exception as e:
                 return Response({'error': f'Failed to read file: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -657,6 +757,8 @@ class FileManagerViewSet(viewsets.ViewSet):
         # Handle node agent requests via direct SFTP
         if pk and pk.startswith('node-'):
             from .node_sftp_client import get_node_sftp_connection, close_sftp_connection
+            from django.core.cache import cache
+            import hashlib
             node_id = pk
             
             ssh = None
@@ -665,11 +767,15 @@ class FileManagerViewSet(viewsets.ViewSet):
                 ssh, sftp = get_node_sftp_connection(node_id)
                 with sftp.file(path, 'w') as f:
                     f.write(content.encode('utf-8'))
+                
+                # Invalidate cache for parent directory
+                dir_path = os.path.dirname(path)
+                cache_key = f"file_list_{node_id}_{hashlib.md5(dir_path.encode()).hexdigest()}"
+                cache.delete(cache_key)
+                
                 return Response({'message': 'File saved successfully'})
             except Exception as e:
                 return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            finally:
-                close_sftp_connection(ssh, sftp)
         
         # Handle local server requests
         elif pk and pk.startswith('local-'):
@@ -683,12 +789,8 @@ class FileManagerViewSet(viewsets.ViewSet):
             server = get_object_or_404(Server, pk=pk)
             try:
                 ssh, sftp = self._get_sftp_client(server)
-                try:
-                    with sftp.file(path, 'w') as f:
-                        f.write(content.encode('utf-8'))
-                    return Response({'message': 'File saved successfully'})
-                finally:
-                    sftp.close()
-                    ssh.close()
+                with sftp.file(path, 'w') as f:
+                    f.write(content.encode('utf-8'))
+                return Response({'message': 'File saved successfully'})
             except Exception as e:
                 return Response({'error': f'Failed to write file: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

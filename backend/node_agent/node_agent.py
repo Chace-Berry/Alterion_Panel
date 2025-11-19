@@ -566,9 +566,23 @@ async def agent_main():
                 logger.info("✓ Backend public key saved")
 
                 # Step 2: Send encrypted registration
+                # Get IPv4 address
+                import socket
+                ipv4_address = "0.0.0.0"
+                try:
+                    # Get primary IPv4 address by connecting to a public DNS
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    ipv4_address = s.getsockname()[0]
+                    s.close()
+                    logger.info(f"✓ Detected IPv4 address: {ipv4_address}")
+                except Exception as e:
+                    logger.warning(f"Could not detect IPv4 address: {e}")
+                
                 reg_payload = {
                     "action": "register",
-                    "serverid": identity["node_uid"]
+                    "serverid": identity["node_uid"],
+                    "ip_address": ipv4_address  # Send IPv4 address with registration
                 }
 
                 logger.info("→ Sending encrypted registration...")

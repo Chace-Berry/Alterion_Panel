@@ -9,6 +9,7 @@ import os
 import sys
 from channels.generic.websocket import AsyncWebsocketConsumer
 from dashboard.models import Server
+from .node_sftp_client import get_node_sftp_connection, close_sftp_connection
 
 
 class TerminalConsumer(AsyncWebsocketConsumer):
@@ -57,6 +58,9 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             if self.node_id and self.node_id.startswith('local-'):
                 # Local terminal on the server itself
                 await self.init_local_terminal()
+            elif self.node_id and self.node_id.startswith('node-'):
+                # Node agent: open SSH using node credentials (cached by node_sftp_client)
+                await self.init_node_ssh(self.node_id)
             elif self.node_id:
                 # Treat node_id as server ID or name for SSH or local
                 server = await self.get_server_by_id_or_name(self.node_id)
@@ -121,9 +125,23 @@ class TerminalConsumer(AsyncWebsocketConsumer):
         
         # Close SSH connection
         if hasattr(self, 'ssh_channel') and self.ssh_channel:
-            self.ssh_channel.close()
-        if hasattr(self, 'ssh_client') and self.ssh_client:
-            self.ssh_client.close()
+            try:
+                self.ssh_channel.close()
+            except:
+                pass
+
+        # If this was a node connection (managed/cached by node_sftp_client) we *don't* close
+        # the underlying SSH client here because node connections are cached and reused.
+        # Only close non-node SSH clients created for ad-hoc server connections.
+        if hasattr(self, '_is_node_connection') and self._is_node_connection:
+            # leave ssh_client open (cached) and let node_sftp_client manage lifecycle
+            pass
+        else:
+            if hasattr(self, 'ssh_client') and self.ssh_client:
+                try:
+                    self.ssh_client.close()
+                except:
+                    pass
         
         # Close local process
         if hasattr(self, 'process') and self.process:
@@ -265,6 +283,49 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             'type': 'connected',
             'message': f'Connected to server: {server.name}'
         }))
+
+    async def init_node_ssh(self, node_id):
+        """Initialize SSH connection to a node using node_sftp_client cached credentials
+
+        This uses the existing connection cache in `node_sftp_client.get_node_sftp_connection`.
+        We obtain the cached SSH client and open an interactive shell channel on it.
+        We mark the connection as a node-managed connection so we don't close the underlying
+        SSH client on websocket disconnect (only the channel is closed).
+        """
+        try:
+            # get_node_sftp_connection is blocking - run in thread
+            ssh, sftp = await asyncio.to_thread(get_node_sftp_connection, node_id)
+
+            # mark this as node-managed connection
+            self._is_node_connection = True
+            self.ssh_client = ssh
+
+            # Open interactive shell on existing SSH client
+            # paramiko's SSHClient.invoke_shell is blocking for setup; run in thread
+            def open_shell():
+                return self.ssh_client.invoke_shell(term='xterm-256color')
+
+            self.ssh_channel = await asyncio.to_thread(open_shell)
+            try:
+                self.ssh_channel.settimeout(0.0)
+            except Exception:
+                # some paramiko versions may not support settimeout on channel
+                pass
+
+            # Start reading output
+            self.shell_task = asyncio.create_task(self.read_shell_output())
+
+            await self.send(text_data=json.dumps({
+                'type': 'connected',
+                'message': f'Connected to node: {node_id}'
+            }))
+
+        except Exception as e:
+            await self.send(text_data=json.dumps({
+                'type': 'error',
+                'message': f'Node SSH connection failed: {str(e)}'
+            }))
+            await self.close()
 
     async def read_process_output(self):
         """Read output from Windows subprocess"""

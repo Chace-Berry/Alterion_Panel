@@ -25,13 +25,13 @@ SECRET_KEY = 'django-insecure-07jj1fvq#v29s9r7i%k!h0is2=l4bay1yll8o5z1=9=f5f2=ud
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost','127.0.0.1',"massive-easy-tetra.ngrok-free.app"]
+ALLOWED_HOSTS = ['localhost','127.0.0.1',"alterion-panel.coraldune.com"]
 
 # Server Port Configuration
 PORT = 13527  # Fixed HTTPS port for Alterion Panel
 
 # Backend WebSocket Host (for node API client)
-BACKEND_WS_HOST = "massive-easy-tetra.ngrok-free.app"
+BACKEND_WS_HOST = "https://alterion-panel.coraldune.com/"
 
 # Application definition
 
@@ -174,7 +174,7 @@ LOGGING = {
 CORS_ALLOWED_ORIGINS = [
     'https://localhost:13527',
     'https://127.0.0.1:13527',
-    'https://192.168.68.100:13527',
+    'https://alterion-panel.coraldune.com/',
 ]
 
 CORS_ALLOW_CREDENTIALS = True

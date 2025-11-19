@@ -55,109 +55,100 @@ def _get_or_create_credentials_project():
 
 def save_node_ssh_credentials(node_id, username, password, user=None):
     """
-    Save SSH username and password to Secret Manager with random key names
-    Returns tuple of (random_key_prefix, username_key_id, password_key_id)
+    Save SSH username and password to Secret Manager with node_id + random suffix
+    Returns the ssh_key_id (node_id + random suffix)
     """
     import secrets
     import string
     
+    print(f"[CRED_MGR] save_node_ssh_credentials called for node {node_id}")
+    print(f"[CRED_MGR] Username: {username}")
+    print(f"[CRED_MGR] Password present: {bool(password)}")
+    
     if user is None:
         user = User.objects.filter(is_superuser=True).first()
+        print(f"[CRED_MGR] Using superuser: {user}")
     
-    # Generate random 15-character key prefix
-    random_prefix = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(15))
-    username_key = f"{random_prefix}_usr"
-    password_key = f"{random_prefix}_pwd"
+    # Generate ssh_key_id as node_id + random 8-character suffix for unpredictability
+    random_suffix = ''.join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(8))
+    ssh_key_id = f"{node_id}_{random_suffix}"
+    print(f"[CRED_MGR] Generated ssh_key_id: {ssh_key_id}")
     
     try:
         prod_env = _get_or_create_credentials_project()
+        print(f"[CRED_MGR] Using environment: {prod_env.name if prod_env else 'None'}")
         
-        # Encrypt key, value, and description for username
-        encrypted_username_key = encrypt_value(username_key)
-        encrypted_username = encrypt_value(username)
-        encrypted_username_desc = encrypt_value(f'SSH username for node {node_id}')
+        # Store username and password as single combined value (username:password)
+        combined_value = f"{username}:{password}"
+        print(f"[CRED_MGR] Combined value length: {len(combined_value)}")
         
-        username_secret, created = Secret.objects.update_or_create(
+        # Encrypt key, value, and description
+        encrypted_key = encrypt_value(ssh_key_id)
+        encrypted_value = encrypt_value(combined_value)
+        encrypted_desc = encrypt_value(f'SSH credentials for node {node_id}')
+        print(f"[CRED_MGR] Encryption completed")
+        
+        credential_secret, created = Secret.objects.update_or_create(
             environment=prod_env,
-            key=encrypted_username_key,
+            key=encrypted_key,
             defaults={
-                'value': encrypted_username,
-                'description': encrypted_username_desc,
+                'value': encrypted_value,
+                'description': encrypted_desc,
                 'created_by': user,
                 'updated_by': user
             }
         )
+        print(f"[CRED_MGR] Secret {'created' if created else 'updated'} with ID: {credential_secret.id}")
         
-        # Create version history for username
-        SecretVersion.objects.create(
-            secret=username_secret,
-            value=encrypted_username,
+        # Create version history
+        version = SecretVersion.objects.create(
+            secret=credential_secret,
+            value=encrypted_value,
             changed_by=user,
             change_type='created' if created else 'updated'
         )
+        print(f"[CRED_MGR] Version history created with ID: {version.id}")
         
-        logger.info(f"Saved SSH username for node {node_id}")
+        logger.info(f"Saved SSH credentials for node {node_id} with key {ssh_key_id}")
+        print(f"[CRED_MGR] Successfully saved credentials!")
         
-        # Encrypt key, value, and description for password
-        encrypted_password_key = encrypt_value(password_key)
-        encrypted_password = encrypt_value(password)
-        encrypted_password_desc = encrypt_value(f'SSH password for node {node_id}')
-        
-        password_secret, created = Secret.objects.update_or_create(
-            environment=prod_env,
-            key=encrypted_password_key,
-            defaults={
-                'value': encrypted_password,
-                'description': encrypted_password_desc,
-                'created_by': user,
-                'updated_by': user
-            }
-        )
-        
-        # Create version history for password
-        SecretVersion.objects.create(
-            secret=password_secret,
-            value=encrypted_password,
-            changed_by=user,
-            change_type='created' if created else 'updated'
-        )
-        
-        logger.info(f"Saved SSH password for node {node_id}")
-        
-        return random_prefix, username_key, password_key
+        return ssh_key_id
         
     except Exception as e:
         logger.error(f"Failed to save credentials for node {node_id}: {e}")
+        print(f"[CRED_MGR] ERROR: {e}")
+        import traceback
+        traceback.print_exc()
         raise
 
 
 def get_node_ssh_username(node_id):
-    """Retrieve SSH username from Secret Manager by decrypting keys to find match"""
+    """Retrieve SSH username from Secret Manager"""
     from .node_models import Node
     
     try:
-        # Get the node to retrieve the ssh_key_id (random prefix)
+        # Get the node to retrieve the ssh_key_id
         node = Node.objects.get(id=node_id)
         if not node.ssh_key_id:
             logger.warning(f"No ssh_key_id found for node {node_id}")
             return None
         
-        username_key = f"{node.ssh_key_id}_usr"
         ssh_env = _get_or_create_credentials_project()
         
-        # Query all secrets in the SSH environment and decrypt keys to find match
+        # Query all secrets and decrypt keys to find match
         all_secrets = Secret.objects.filter(environment=ssh_env)
         for secret in all_secrets:
             try:
                 decrypted_key = decrypt_value(secret.key)
-                if decrypted_key == username_key:
-                    username = decrypt_value(secret.value)
+                if decrypted_key == node.ssh_key_id:
+                    # Decrypt value and extract username (before colon)
+                    combined_value = decrypt_value(secret.value)
+                    username = combined_value.split(':', 1)[0]
                     return username
             except Exception:
-                # Skip secrets that can't be decrypted or don't match
                 continue
         
-        logger.warning(f"No username found for node {node_id}")
+        logger.warning(f"No credentials found for node {node_id}")
         return None
     except Node.DoesNotExist:
         logger.warning(f"Node {node_id} not found")
@@ -168,38 +159,35 @@ def get_node_ssh_username(node_id):
 
 
 def get_node_ssh_password(node_id):
-    """Retrieve SSH password from Secret Manager by decrypting keys to find match"""
+    """Retrieve SSH password from Secret Manager"""
     from .node_models import Node
     
     try:
-        # Get the node to retrieve the ssh_key_id (random prefix)
+        # Get the node to retrieve the ssh_key_id
         node = Node.objects.get(id=node_id)
         if not node.ssh_key_id:
             logger.warning(f"No ssh_key_id found for node {node_id}")
             return None
         
-        password_key = f"{node.ssh_key_id}_pwd"
         ssh_env = _get_or_create_credentials_project()
         
-        # Query all secrets in the SSH environment and decrypt keys to find match
+        # Query all secrets and decrypt keys to find match
         all_secrets = Secret.objects.filter(environment=ssh_env)
         for secret in all_secrets:
             try:
                 decrypted_key = decrypt_value(secret.key)
-                if decrypted_key == password_key:
-                    password = decrypt_value(secret.value)
+                if decrypted_key == node.ssh_key_id:
+                    # Decrypt value and extract password (after colon)
+                    combined_value = decrypt_value(secret.value)
+                    password = combined_value.split(':', 1)[1] if ':' in combined_value else None
                     return password
             except Exception:
-                # Skip secrets that can't be decrypted or don't match
                 continue
         
-        logger.warning(f"No password found for node {node_id}")
+        logger.warning(f"No credentials found for node {node_id}")
         return None
     except Node.DoesNotExist:
         logger.warning(f"Node {node_id} not found")
-        return None
-    except Secret.DoesNotExist:
-        logger.warning(f"No password found for node {node_id}")
         return None
     except Exception as e:
         logger.error(f"Failed to retrieve password for node {node_id}: {e}")
@@ -217,119 +205,95 @@ def get_node_ssh_credentials(node_id):
 
 
 def delete_node_ssh_credentials(node_id, user=None):
-    """Delete both SSH username and password from Secret Manager"""
+    """Delete SSH credentials from Secret Manager"""
     from .node_models import Node
     
     if user is None:
         user = User.objects.filter(is_superuser=True).first()
     
-    errors = []
-    
     try:
-        # Get the node to retrieve the ssh_key_id (random prefix)
+        # Get the node to retrieve the ssh_key_id
         node = Node.objects.get(id=node_id)
         if not node.ssh_key_id:
             logger.warning(f"No ssh_key_id found for node {node_id}")
             return
         
-        username_key = f"{node.ssh_key_id}_usr"
-        password_key = f"{node.ssh_key_id}_pwd"
-        encrypted_username_key = encrypt_value(username_key)
-        encrypted_password_key = encrypt_value(password_key)
-        
+        encrypted_key = encrypt_value(node.ssh_key_id)
         prod_env = _get_or_create_credentials_project()
         
-        # Delete username
+        # Delete credentials
         try:
-            username_secret = Secret.objects.get(environment=prod_env, key=encrypted_username_key)
+            credential_secret = Secret.objects.get(environment=prod_env, key=encrypted_key)
             
             # Create version history before deleting
             SecretVersion.objects.create(
-                secret=username_secret,
-                value=username_secret.value,
+                secret=credential_secret,
+                value=credential_secret.value,
                 changed_by=user,
                 change_type='deleted'
             )
             
-            username_secret.delete()
-            logger.info(f"Deleted SSH username for node {node_id}")
+            credential_secret.delete()
+            logger.info(f"Deleted SSH credentials for node {node_id}")
         except Secret.DoesNotExist:
-            logger.warning(f"Username secret not found for node {node_id}")
+            logger.warning(f"Credentials not found for node {node_id}")
         except Exception as e:
-            logger.warning(f"Failed to delete username for node {node_id}: {e}")
-            errors.append(str(e))
-        
-        # Delete password
-        try:
-            password_secret = Secret.objects.get(environment=prod_env, key=encrypted_password_key)
-            
-            # Create version history before deleting
-            SecretVersion.objects.create(
-                secret=password_secret,
-                value=password_secret.value,
-                changed_by=user,
-                change_type='deleted'
-            )
-            
-            password_secret.delete()
-            logger.info(f"Deleted SSH password for node {node_id}")
-        except Secret.DoesNotExist:
-            logger.warning(f"Password secret not found for node {node_id}")
-        except Exception as e:
-            logger.warning(f"Failed to delete password for node {node_id}: {e}")
-            errors.append(str(e))
-        
-        if errors:
-            logger.warning(f"Errors during credential deletion for node {node_id}: {'; '.join(errors)}")
+            logger.warning(f"Failed to delete credentials for node {node_id}: {e}")
     
     except Node.DoesNotExist:
         logger.warning(f"Node {node_id} not found")
     except Exception as e:
         logger.error(f"Failed to delete credentials for node {node_id}: {e}")
-        errors.append(str(e))
 
 
 def update_node_ssh_password(node_id, new_password, user=None):
-    """Update only the SSH password for a node"""
+    """Update only the SSH password for a node (re-saves combined credentials)"""
     from .node_models import Node
     
     if user is None:
         user = User.objects.filter(is_superuser=True).first()
     
     try:
-        # Get the node to retrieve the ssh_key_id (random prefix)
+        # Get current username and update with new password
         node = Node.objects.get(id=node_id)
         if not node.ssh_key_id:
             logger.warning(f"No ssh_key_id found for node {node_id}")
             return None
         
-        password_key = f"{node.ssh_key_id}_pwd"
-        encrypted_password_key = encrypt_value(password_key)
+        # Get current username
+        current_username = get_node_ssh_username(node_id)
+        if not current_username:
+            logger.warning(f"No existing username found for node {node_id}")
+            return None
+        
+        # Store updated credentials (username:new_password)
+        combined_value = f"{current_username}:{new_password}"
+        encrypted_key = encrypt_value(node.ssh_key_id)
+        encrypted_value = encrypt_value(combined_value)
+        encrypted_desc = encrypt_value(f'SSH credentials for node {node_id}')
         
         prod_env = _get_or_create_credentials_project()
-        encrypted_password = encrypt_value(new_password)
-        encrypted_password_desc = encrypt_value(f'SSH password for node {node_id}')
         
-        password_secret, created = Secret.objects.update_or_create(
+        credential_secret, created = Secret.objects.update_or_create(
             environment=prod_env,
-            key=encrypted_password_key,
+            key=encrypted_key,
             defaults={
-                'value': encrypted_password,
-                'description': encrypted_password_desc,
+                'value': encrypted_value,
+                'description': encrypted_desc,
                 'updated_by': user
             }
         )
         
         # Create version history
         SecretVersion.objects.create(
-            secret=password_secret,
-            value=encrypted_password,
+            secret=credential_secret,
+            value=encrypted_value,
             changed_by=user,
             change_type='updated'
         )
         
         logger.info(f"Updated SSH password for node {node_id}")
-        return password_key
+        return node.ssh_key_id
     
     except Node.DoesNotExist:
         logger.warning(f"Node {node_id} not found")
@@ -341,36 +305,57 @@ def update_node_ssh_password(node_id, new_password, user=None):
 
 
 def update_node_ssh_username(node_id, new_username, user=None):
-    """Update only the SSH username for a node"""
+    """Update only the SSH username for a node (re-saves combined credentials)"""
+    from .node_models import Node
+    
     if user is None:
         user = User.objects.filter(is_superuser=True).first()
     
-    username_key = f"node_{node_id}_ssh_username"
-    
     try:
-        prod_env = _get_or_create_credentials_project()
-        encrypted_username = encrypt_value(new_username)
+        # Get current password and update with new username
+        node = Node.objects.get(id=node_id)
+        if not node.ssh_key_id:
+            logger.warning(f"No ssh_key_id found for node {node_id}")
+            return None
         
-        username_secret, created = Secret.objects.update_or_create(
+        # Get current password
+        current_password = get_node_ssh_password(node_id)
+        if not current_password:
+            logger.warning(f"No existing password found for node {node_id}")
+            return None
+        
+        # Store updated credentials (new_username:password)
+        combined_value = f"{new_username}:{current_password}"
+        encrypted_key = encrypt_value(node.ssh_key_id)
+        encrypted_value = encrypt_value(combined_value)
+        encrypted_desc = encrypt_value(f'SSH credentials for node {node_id}')
+        
+        prod_env = _get_or_create_credentials_project()
+        
+        credential_secret, created = Secret.objects.update_or_create(
             environment=prod_env,
-            key=username_key,
+            key=encrypted_key,
             defaults={
-                'value': encrypted_username,
-                'description': f'SSH username for node {node_id}',
+                'value': encrypted_value,
+                'description': encrypted_desc,
                 'updated_by': user
             }
         )
         
         # Create version history
         SecretVersion.objects.create(
-            secret=username_secret,
-            value=encrypted_username,
+            secret=credential_secret,
+            value=encrypted_value,
             changed_by=user,
             change_type='updated'
         )
         
         logger.info(f"Updated SSH username for node {node_id}")
-        return username_key
+        return node.ssh_key_id
+        
+    except Node.DoesNotExist:
+        logger.warning(f"Node {node_id} not found")
+        return None
         
     except Exception as e:
         logger.error(f"Failed to update username for node {node_id}: {e}")

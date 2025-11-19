@@ -2,6 +2,7 @@ from django.db import models
 from accounts.models import User
 from django.utils import timezone
 import uuid
+from oauth2_provider.models import Application
 
 
 class SecretProject(models.Model):
@@ -10,6 +11,8 @@ class SecretProject(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, null=True)
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='secret_projects')
+    # Link to OAuth Toolkit Application
+    application = models.OneToOneField('oauth2_provider.Application', on_delete=models.SET_NULL, null=True, blank=True, related_name='secret_project')
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     

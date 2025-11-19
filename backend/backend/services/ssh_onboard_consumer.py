@@ -79,8 +79,9 @@ class SSHOnboardConsumer(AsyncWebsocketConsumer):
         username = msg.get("username")
         auth_credential = msg.get("private_key")  # Can be private key or password
         
-        # Store username and password for later use (credential saving)
+        # Store username, password, and auth credential for later use (credential saving)
         self.ssh_username = username
+        self.auth_credential = auth_credential  # Store the full credential (password or key)
         self.user_password = None
         if auth_credential and not auth_credential.strip().startswith('-----BEGIN'):
             self.user_password = auth_credential
@@ -130,6 +131,49 @@ class SSHOnboardConsumer(AsyncWebsocketConsumer):
             await asyncio.sleep(0.1)
 
             print("[DEBUG] All connection messages sent")
+            
+            # Save SSH credentials immediately after successful connection
+            print(f"[DEBUG] Saving credentials after successful SSH connection - username: {username}, has_credential: {bool(auth_credential)}")
+            try:
+                # Get the IP address to look up the node
+                from .node_models import Node
+                from asgiref.sync import sync_to_async
+                
+                ip_address = self.ssh_remote_ip or self.ip
+                print(f"[DEBUG] Looking up node by IP: {ip_address}")
+                
+                # Try to find existing node by IP
+                @sync_to_async
+                def get_node_by_ip():
+                    try:
+                        return Node.objects.filter(ip_address=ip_address).first()
+                    except Exception as e:
+                        print(f"[DEBUG] Error looking up node: {e}")
+                        return None
+                
+                node = await get_node_by_ip()
+                if node:
+                    print(f"[DEBUG] Found existing node: {node.id}")
+                    await self.send(json.dumps({"status": "debug", "step": "Saving SSH credentials..."}))
+                    
+                    await self.save_node_credentials(
+                        node_id=node.id,
+                        username=username,
+                        password=auth_credential,
+                        ssh_port=port
+                    )
+                    
+                    await self.send(json.dumps({"status": "debug", "step": "✓ SSH credentials saved"}))
+                    print(f"[DEBUG] Credentials saved successfully for node {node.id}")
+                else:
+                    print(f"[DEBUG] No existing node found for IP {ip_address}, will save credentials after installation")
+            except Exception as e:
+                print(f"[DEBUG] Error saving credentials after connection: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't fail the whole process if credential saving fails
+                await self.send(json.dumps({"status": "warning", "step": f"Could not save credentials: {e}"}))
+            
         except paramiko.AuthenticationException as e:
             print(f"[DEBUG] Auth exception: {e}")
             await self.send(json.dumps({"error": f"SSH authentication failed - check private key: {e}"}))
@@ -293,7 +337,7 @@ class SSHOnboardConsumer(AsyncWebsocketConsumer):
             
             if not host:
                 # Last resort: use ngrok URL from the error message
-                host = 'massive-easy-tetra.ngrok-free.app'
+                host = 'https://alterion-panel.coraldune.com/'
                 await self.send(json.dumps({"status": "warning", "step": f"Using fallback ngrok host: {host}"}))
             
             # Determine protocol (wss for https/ngrok, ws otherwise)
@@ -669,36 +713,113 @@ class SSHOnboardConsumer(AsyncWebsocketConsumer):
             from .node_models import Node
             from asgiref.sync import sync_to_async
             import time
+            from datetime import timedelta
+            
             user = getattr(self.scope, 'user', None)
-            ip_address = self.ssh_remote_ip or self.ip
+            ssh_ip = self.ssh_remote_ip or self.ip  # The IPv4 address we SSH'd to
             node_data = None
+            
+            # Helper function to find recently created nodes (last 2 minutes)
+            @sync_to_async
+            def get_recent_node():
+                cutoff = timezone.now() - timedelta(minutes=2)
+                
+                # Build base query for recent nodes
+                query = Node.objects.filter(created_at__gte=cutoff)
+                
+                # Filter by owner if user is authenticated
+                if user and user.is_authenticated:
+                    query = query.filter(owner=user)
+                    print(f"[DEBUG] Searching for recent nodes by user: {user.email if hasattr(user, 'email') else user}")
+                else:
+                    print(f"[DEBUG] Searching for recent nodes (no user filter)")
+                
+                recent_nodes = query.order_by('-created_at')
+                print(f"[DEBUG] Found {recent_nodes.count()} recent nodes in last 2 minutes")
+                print(f"[DEBUG] Looking for node with SSH IP: {ssh_ip}")
+                
+                # Try to match by SSH IP in notes field (we stored it there) or by IP address
+                for node in recent_nodes:
+                    print(f"[DEBUG] Checking node {node.id} with IP {node.ip_address}, notes: {node.notes[:50] if node.notes else 'None'}")
+                    
+                    # Check if SSH IP matches node's IP address
+                    if node.ip_address == ssh_ip:
+                        print(f"[DEBUG] Found node by exact IP match: {node.id}")
+                        return {
+                            'id': node.id,
+                            'hostname': node.hostname,
+                            'ip_address': node.ip_address,
+                            'port': node.port,
+                            'status': node.status
+                        }
+                    
+                    # Check if SSH IP is stored in notes
+                    if node.notes and f"SSH_IP:{ssh_ip}" in node.notes:
+                        print(f"[DEBUG] Found node by SSH_IP in notes: {node.id}")
+                        return {
+                            'id': node.id,
+                            'hostname': node.hostname,
+                            'ip_address': node.ip_address,
+                            'port': node.port,
+                            'status': node.status
+                        }
+                
+                # If no exact match, return the most recent node (likely just registered)
+                if recent_nodes.exists():
+                    node = recent_nodes.first()
+                    print(f"[DEBUG] Found most recent node (no IP match): {node.id}, IP: {node.ip_address}")
+                    return {
+                        'id': node.id,
+                        'hostname': node.hostname,
+                        'ip_address': node.ip_address,
+                        'port': node.port,
+                        'status': node.status
+                    }
+                
+                print(f"[DEBUG] No recent nodes found at all")
+                return None
+            
             # Wait up to 40 seconds for the node to appear in DB
             for i in range(40):
-                node_data = await get_node_by_ip_sync(ip_address)
+                node_data = await get_recent_node()
                 if node_data:
                     print(f"[DEBUG] Found node in DB: {node_data}")
                     break
                 await asyncio.sleep(1)
             
+            print(f"[DEBUG] After waiting loop - node_data: {node_data}")
+            
             if node_data:
                 node_id = node_data['id']
                 hostname = node_data['hostname']
+                print(f"[DEBUG] Node found! node_id: {node_id}, hostname: {hostname}")
                 await self.send(json.dumps({"status": "node_info", "node": node_data}))
                 
-                # Save SSH credentials to Secret Manager (production environment)
-                if self.user_password and self.ssh_username:
+                print(f"[DEBUG] Checking credential saving - ssh_username: {getattr(self, 'ssh_username', None)}, auth_credential exists: {bool(getattr(self, 'auth_credential', None))}")
+                
+                # Save SSH credentials to Secret Manager after node registration
+                if self.ssh_username and self.auth_credential:
                     try:
                         await self.send(json.dumps({"status": "debug", "step": "Saving SSH credentials to Secret Manager..."}))
+                        print(f"[DEBUG] About to save credentials for newly registered node - username: {self.ssh_username}, has_credential: {bool(self.auth_credential)}")
+                        # Save credentials (password or private key)
+                        ssh_connection_ip = self.ssh_remote_ip or self.ip
                         await self.save_node_credentials(
                             node_id=node_id,
                             username=self.ssh_username,  # Use actual SSH username from connection
-                            password=self.user_password,
-                            ssh_port=port
+                            password=self.auth_credential,  # Store password or private key
+                            ssh_port=port,
+                            ssh_ip=ssh_connection_ip  # Store the actual SSH connection IP (IPv4)
                         )
                         await self.send(json.dumps({"status": "debug", "step": "✓ SSH credentials saved to Secret Manager"}))
+                        print(f"[DEBUG] Credentials saved successfully for node {node_id}!")
                     except Exception as e:
                         await self.send(json.dumps({"status": "warning", "step": f"Failed to save SSH credentials: {e}"}))
                         print(f"[DEBUG] Failed to save credentials: {e}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    print(f"[DEBUG] NOT saving credentials - ssh_username: {getattr(self, 'ssh_username', None)}, auth_credential: {bool(getattr(self, 'auth_credential', None))}")
             else:
                 print("[DEBUG] Node not found in DB after 40 seconds")
                 await self.send(json.dumps({"status": "warning", "step": "Node agent installed but not yet connected to panel"}))
@@ -714,7 +835,7 @@ class SSHOnboardConsumer(AsyncWebsocketConsumer):
         print("[DEBUG] handle_ssh_onboard completed!")
         await self.send(json.dumps({"status": "workflow_complete", "step": "All operations finished"}))
     
-    async def save_node_credentials(self, node_id, username, password, ssh_port):
+    async def save_node_credentials(self, node_id, username, password, ssh_port, ssh_ip=None):
         """Save node SSH credentials to Secret Manager after successful installation"""
         from .credential_manager import save_node_ssh_credentials
         from .node_models import Node
@@ -722,22 +843,35 @@ class SSHOnboardConsumer(AsyncWebsocketConsumer):
         
         try:
             print(f"[DEBUG] Saving credentials for node {node_id}")
+            print(f"[DEBUG] Username: {username}")
+            print(f"[DEBUG] Password length: {len(password) if password else 0}")
+            print(f"[DEBUG] SSH Port: {ssh_port}")
+            print(f"[DEBUG] SSH IP: {ssh_ip}")
             
             # Save credentials to Secret Manager (runs in thread pool)
-            await sync_to_async(save_node_ssh_credentials)(
+            # Returns ssh_key_id (node_id + random suffix)
+            ssh_key_id = await sync_to_async(save_node_ssh_credentials)(
                 node_id=node_id,
                 username=username,
                 password=password,
                 user=getattr(self.scope, 'user', None)
             )
             
-            # Update Node record with ssh_port and key_id
+            print(f"[DEBUG] Generated ssh_key_id: {ssh_key_id}")
+            
+            # Update Node record with ssh_port, key_id, and optionally SSH IP
             def update_node():
                 node = Node.objects.get(id=node_id)
                 node.ssh_port = ssh_port
-                node.ssh_key_id = f"node_{node_id}_ssh"  # Reference to credentials in Secret Manager
+                node.ssh_key_id = ssh_key_id  # node_id + random suffix (unpredictable)
                 node.username = username
+                # Store SSH connection IP in notes if different from WebSocket IP
+                if ssh_ip and ssh_ip != node.ip_address:
+                    existing_notes = node.notes or ""
+                    if "SSH_IP:" not in existing_notes:
+                        node.notes = f"{existing_notes}\nSSH_IP:{ssh_ip}".strip()
                 node.save()
+                print(f"[DEBUG] Updated node {node_id} with ssh_key_id: {ssh_key_id}, SSH IP: {ssh_ip}")
                 return node
             
             await sync_to_async(update_node)()
