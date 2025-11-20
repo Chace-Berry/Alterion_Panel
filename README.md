@@ -477,8 +477,8 @@ This project is licensed under the **GNU General Public License v3.0** - see the
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/chaceberry/alterion_panel/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/chaceberry/alterion_panel/discussions)
+- **Issues**: [GitHub Issues](https://github.com/chace-berry/alterion_panel/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/chace-berry/alterion_panel/discussions)
 - **Email**: chaceberry686@gmail.com
 
 ---
