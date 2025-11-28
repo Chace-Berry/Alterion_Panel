@@ -488,6 +488,6 @@ This project is licensed under the **GNU General Public License v3.0** - see the
 **Made with ❤️ by Chace Berry**
 
 [![Discord](https://img.shields.io/badge/Discord-Join-blue?logo=discord&logoColor=white)](https://discord.gg/3gy9gJyJY8)
- • [Comming Soon]() • [GitHub](https://github.com/chaceberry/alterion-panel)
+ • [Comming Soon]() • [GitHub](https://github.com/chaceberry/alterion_panel)
 
 </div>
