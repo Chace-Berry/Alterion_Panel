@@ -13,7 +13,7 @@ services:
       - db
       - redis
     volumes:
-      - ../backend:/app
+      # - ../backend:/app  # Removed bind mount - files are copied in image
       - backend_keys:/app/backend/services
       - backend_serverid:/app/backend/dashboard
     entrypoint: ["/entrypoint.sh"]
@@ -50,8 +50,6 @@ services:
       - redis
     env_file:
       - ../backend/.env
-    volumes:
-      - ../backend:/app
 
   nginx:
     image: nginx:latest
@@ -62,15 +60,17 @@ services:
     depends_on:
       - backend
     volumes:
-      - ../docker/nginx.backend.conf:/etc/nginx/conf.d/default.conf
-      - ../bin/backend/backend/certs:/etc/letsencrypt
+       - ./nginx.backend.conf:/etc/nginx/conf.d/default.conf
+       - ./webroot:/var/www/certbot
+       - /etc/letsencrypt:/etc/letsencrypt
     restart: always
 
   certbot:
     image: certbot/certbot
     container_name: certbot
     volumes:
-      - ../bin/backend/backend/certs:/etc/letsencrypt
+      - certs:/etc/letsencrypt
+      - ./webroot:/var/www/certbot
     restart: unless-stopped
 
 volumes:
@@ -78,3 +78,4 @@ volumes:
   redisdata:
   backend_keys:
   backend_serverid:
+  certs:
