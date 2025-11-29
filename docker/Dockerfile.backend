@@ -1,1 +1,44 @@
+# Backend Dockerfile for Django + Gunicorn + Channels + Celery
+FROM python:latest
 
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    nginx \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY backend/backend/requirements.txt ./requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# Copy project files
+COPY backend/ ./ 
+
+# Create logs directory
+RUN mkdir -p backend/logs
+
+# Copy entrypoint script
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Collect static files
+RUN python backend/manage.py collectstatic --noinput
+
+# Copy Nginx config
+COPY docker/nginx.backend.conf /etc/nginx/nginx.conf
+
+# Expose ports
+EXPOSE 8000 8080
+
+# Set entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+
+# Start Gunicorn, Channels, Celery, and Nginx
+CMD ["sh", "-c", "service nginx start && gunicorn backend.wsgi:application --bind 0.0.0.0:8000 --workers 3 && daphne backend.asgi:application --bind 0.0.0.0 --port 8080"]
