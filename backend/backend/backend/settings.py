@@ -159,11 +159,11 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': DB_NAME,
-        'USER': 'alterion_user',
-        'PASSWORD': DB_PASSWORD,
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.environ.get('ALTERION_DB_NAME', DB_NAME),
+        'USER': os.environ.get('ALTERION_DB_USER', 'alterion_user'),
+        'PASSWORD': os.environ.get('ALTERION_DB_PASSWORD', DB_PASSWORD),
+        'HOST': os.environ.get('DATABASE_HOST', 'localhost'),
+        'PORT': os.environ.get('DATABASE_PORT', '5432'),
     },
     'secrets': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -293,8 +293,11 @@ ASGI_APPLICATION = 'backend.asgi.application'
 
 CHANNEL_LAYERS = {
     'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer'
-    }
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [(os.environ.get('REDIS_HOST', 'localhost'), 6379)],
+        },
+    },
 }
 
 # Cache configuration for download progress tracking
@@ -304,4 +307,12 @@ CACHES = {
         'LOCATION': 'unique-snowflake',
     }
 }
+
+# Celery Configuration
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
 
