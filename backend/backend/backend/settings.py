@@ -91,13 +91,13 @@ import os
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-07jj1fvq#v29s9r7i%k!h0is2=l4bay1yll8o5z1=9=f5f2=ud'
 
-ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,alterion-panel.coraldune.com').split(',')]
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,alterion-panel.{domainname}').split(',')]
 
 # Server Port Configuration
 PORT = 13527  # Fixed HTTPS port for Alterion Panel
 
 # Backend WebSocket Host (for node API client)
-BACKEND_WS_HOST = "wss://alterion-panel.coraldune.com"
+BACKEND_WS_HOST = "wss://alterion-panel.{domainname}"
 
 # Application definition
 
@@ -264,7 +264,7 @@ LOGGING = {
 CORS_ALLOWED_ORIGINS = [
     'https://localhost:13527',
     'https://127.0.0.1:13527',
-    'https://alterion-panel.coraldune.com/',
+    'https://alterion-panel.{domainname}/',
 ]
 
 CORS_ALLOW_CREDENTIALS = True
