@@ -1,0 +1,142 @@
+                      Alterion Public Use License (APUL)
+                          Version 2.0, 3 October 2025
+
+ Copyright (C) 2025 Chace Berry
+
+ All rights reserved. This software, including source code, assets, 
+ documentation, and related materials (collectively, "Software"), 
+ is the exclusive property of Chace Berry.
+
+ Everyone is permitted to use, study, and modify this Software under 
+ the conditions set forth below. Copying or redistributing this license 
+ text itself is strictly prohibited.
+
+                                 Preamble
+
+ The Alterion Public Use License (APUL) is designed to protect the 
+ ownership of Chace Berry while allowing the community to benefit 
+ from using and modifying the Software. APUL guarantees freedom 
+ to use and study the Software while enforcing attribution and 
+ commercial-use conditions.
+
+ You may run the Software for any purpose.
+
+ You may study and modify the Software.
+
+ You may share modified or unmodified versions only under the conditions 
+ that they remain free and credit Chace Berry as the original creator.
+
+                          Terms and Conditions
+
+0. Definitions.
+
+ "This License" refers to APUL version 2.0.
+
+ "Copyright" includes all copyright-like protections for the Software.
+
+ "The Program" refers to any work licensed under APUL.
+
+ "You" means the licensee or recipient of the Software.
+
+ "Modify" means copying, adapting, or transforming the work beyond 
+ a literal duplicate.
+
+ "Covered Work" means the unmodified Program or any work derived from it.
+
+ "Convey" means any act of distributing the Software or enabling others 
+ to receive it.
+
+1. Ownership.
+
+ All rights, title, and interest in the Software remain with Chace Berry. 
+ No one may claim ownership of the Software or any derivative work.
+
+2. Free Use and Modification.
+
+ You may:
+   - Use the Software for personal, educational, or research purposes.
+   - Modify the Software for any non-commercial purpose.
+   - Distribute modified or unmodified versions ONLY IF the work is 
+     free of charge and includes attribution to Chace Berry.
+
+ Suggested attribution:
+ "This software is based on work by Chace Berry (https://github.com/Chace-Berry)."
+
+3. Commercial Use Clause.
+
+ If you incorporate any part of the Software into proprietary or 
+ commercial software:
+   - You MUST compensate Chace Berry thirty percent (30%) of gross 
+     revenue derived from that software on a monthly basis.
+   - Failure to comply constitutes a violation of this license and may 
+     result in legal action.
+
+4. Attribution Requirement.
+
+ All distributed versions of the Software, modified or unmodified, 
+ must credit Chace Berry in source code, documentation, or user 
+ interfaces where reasonable.
+
+5. Prohibited Use.
+
+ You MAY NOT:
+   - Claim the Software or any derivative work as your own.
+   - Remove, obscure, or alter copyright or license notices.
+   - Distribute derivative works as proprietary software without 
+     agreeing to the 30% revenue share.
+
+6. Non-Source Distribution.
+
+ Object code or compiled versions may be distributed only if the 
+ Corresponding Source or an offer to provide it is included.
+
+7. User Products.
+
+ For consumer goods or products incorporating APUL Software:
+   - Installation information must be provided for modified versions 
+     to ensure users can exercise their rights.
+
+8. Patents.
+
+ Contributors grant non-exclusive, worldwide, royalty-free patent rights 
+ for the Software. Patent licenses may not discriminate against users 
+ or restrict the freedoms granted by this License.
+
+9. Networked and Cloud Use.
+
+ Running APUL Software on servers or in the cloud does not restrict 
+ the freedoms of recipients.
+
+10. Termination.
+
+ Violating this License immediately terminates your rights. Rights 
+ may be reinstated if violations cease and no repeated violations exist.
+
+11. Disclaimer of Warranty.
+
+ The Software is provided "as-is" without warranty of any kind. Use 
+ at your own risk; authors are not liable for damages, losses, or liabilities.
+
+12. Limitation of Liability.
+
+ Authors or contributors are not liable for any direct, indirect, incidental, 
+ or consequential damages resulting from use.
+
+                        How to Apply This License
+
+ To apply APUL, attach the following notice to your source files:
+
+ Alterion Panel
+ Copyright (C) 2025 Chace Berry
+
+ This program is free software: you can redistribute it and/or modify 
+ it under the terms of the Alterion Public Use License (APUL) version 2.0.
+
+ This program is distributed in the hope that it will be useful, 
+ but WITHOUT ANY WARRANTY.
+
+ For interactive programs, display a short notice at startup:
+
+ Alterion Panel — Copyright (C) 2025 Chace Berry
+ This program comes with ABSOLUTELY NO WARRANTY.
+ It is free software under the Alterion Public Use License (APUL).

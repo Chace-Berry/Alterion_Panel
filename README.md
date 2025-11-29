@@ -1,14 +1,14 @@
 <div align="center">
     <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="assets/logo.svg?v=1">
-        <source media="(prefers-color-scheme: light)" srcset="assets/logo-2.svg?v=1">
-        <img alt="Alterion Logo" src="assets/logo-2.svg?v=1" width="400">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/logo-01.png?v=1">
+        <source media="(prefers-color-scheme: light)" srcset="assets/logo-02.png?v=1">
+        <img alt="Alterion Logo" src="assets/logo-02.png?v=1" width="400">
     </picture>
 </div>
 
 <div align="center">
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: APUL](https://img.shields.io/badge/License-APULv2-blue.svg)](/LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![Django](https://img.shields.io/badge/Django-4.2.7-092E20?style=flat&logo=django&logoColor=white)](https://www.djangoproject.com/)
 [![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=black)](https://reactjs.org/)
@@ -477,8 +477,8 @@ This project is licensed under the **GNU General Public License v3.0** - see the
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/chaceberry/alterion-panel/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/chaceberry/alterion-panel/discussions)
+- **Issues**: [GitHub Issues](https://github.com/chace-berry/alterion_panel/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/chace-berry/alterion_panel/discussions)
 - **Email**: chaceberry686@gmail.com
 
 ---
@@ -487,6 +487,7 @@ This project is licensed under the **GNU General Public License v3.0** - see the
 
 **Made with ❤️ by Chace Berry**
 
-[Coming Soon]() • [Comming Soon]() • [GitHub](https://github.com/chaceberry/alterion-panel)
+[![Discord](https://img.shields.io/badge/Discord-Join-blue?logo=discord&logoColor=white)](https://discord.gg/3gy9gJyJY8)
+ • [Comming Soon]() • [GitHub](https://github.com/chaceberry/alterion_panel)
 
 </div>
