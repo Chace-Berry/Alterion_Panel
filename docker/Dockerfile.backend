@@ -1,5 +1,5 @@
 # Backend Dockerfile for Django + Gunicorn + Channels + Celery
-FROM python:3.11-slim
+FROM python:latest
 
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1

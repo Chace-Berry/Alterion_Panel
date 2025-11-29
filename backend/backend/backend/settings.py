@@ -22,16 +22,82 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-07jj1fvq#v29s9r7i%k!h0is2=l4bay1yll8o5z1=9=f5f2=ud'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+import sqlite3
+import secrets
+from cryptography.fernet import Fernet
+import base64
+from hashlib import sha256
 
-ALLOWED_HOSTS = ['localhost','127.0.0.1',]
+def get_encryption_key():
+    key = SECRET_KEY.encode()
+    hashed = sha256(key).digest()
+    return base64.urlsafe_b64encode(hashed)
+
+def encrypt_value(value):
+    f = Fernet(get_encryption_key())
+    encrypted = f.encrypt(value.encode())
+    return base64.b64encode(encrypted).decode()
+
+def decrypt_value(encrypted_value):
+    f = Fernet(get_encryption_key())
+    encrypted_bytes = base64.b64decode(encrypted_value.encode())
+    decrypted = f.decrypt(encrypted_bytes)
+    return decrypted.decode()
+
+def get_db_password():
+    db_path = BASE_DIR / 'system_secrets.db'
+    conn = sqlite3.connect(str(db_path))
+    c = conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT)')
+    
+    # Get or set db_name
+    c.execute('SELECT value FROM secrets WHERE key = ?', ('db_name',))
+    row = c.fetchone()
+    if row:
+        db_name = decrypt_value(row[0])
+    else:
+        # Get serverid
+        serverid_path = BASE_DIR / 'dashboard' / 'serverid.dat'
+        if serverid_path.exists():
+            with open(serverid_path, 'r') as f:
+                serverid = f.read().strip()
+        else:
+            import uuid
+            serverid = uuid.uuid4().hex[:16]
+            with open(serverid_path, 'w') as f:
+                f.write(serverid)
+        db_name = f"alterion-{serverid}"
+        encrypted = encrypt_value(db_name)
+        c.execute('INSERT INTO secrets (key, value) VALUES (?, ?)', ('db_name', encrypted))
+    
+    # Get or set db_password
+    c.execute('SELECT value FROM secrets WHERE key = ?', ('db_password',))
+    row = c.fetchone()
+    if row:
+        password = decrypt_value(row[0])
+    else:
+        password = secrets.token_urlsafe(32)
+        encrypted = encrypt_value(password)
+        c.execute('INSERT INTO secrets (key, value) VALUES (?, ?)', ('db_password', encrypted))
+    
+    conn.commit()
+    conn.close()
+    return db_name, password
+
+DB_NAME, DB_PASSWORD = get_db_password()
+
+import os
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = 'django-insecure-07jj1fvq#v29s9r7i%k!h0is2=l4bay1yll8o5z1=9=f5f2=ud'
+
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,alterion-panel.coraldune.com').split(',')]
 
 # Server Port Configuration
 PORT = 13527  # Fixed HTTPS port for Alterion Panel
 
 # Backend WebSocket Host (for node API client)
-BACKEND_WS_HOST = "wss://localhost:13527"
+BACKEND_WS_HOST = "wss://alterion-panel.coraldune.com"
 
 # Application definition
 
@@ -92,10 +158,20 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 DATABASES = {
     'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': DB_NAME,
+        'USER': 'alterion_user',
+        'PASSWORD': DB_PASSWORD,
+        'HOST': 'localhost',
+        'PORT': '5432',
+    },
+    'secrets': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': BASE_DIR / 'system_secrets.db',
     }
 }
+
+DATABASE_ROUTERS = ['backend.db_router.SecretRouter']
 
 
 # Password validation

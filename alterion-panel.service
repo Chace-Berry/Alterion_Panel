@@ -7,12 +7,12 @@ Wants=redis.service
 Type=notify
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/alterion-panel/backend/backend
-Environment="PATH=/opt/alterion-panel/venv/bin"
 Environment="DJANGO_SETTINGS_MODULE=backend.settings"
 
 # Gunicorn with Uvicorn workers for async/WebSocket support
-ExecStart=/opt/alterion-panel/venv/bin/gunicorn backend.asgi:application \
+WorkingDirectory=/var/www/alterion-panel/backend/backend
+Environment="PATH=/var/www/alterion-panel/venv/bin"
+ExecStart=/var/www/alterion-panel/venv/bin/gunicorn backend.asgi:application \
     --bind 0.0.0.0:13527 \
     --workers 4 \
     --worker-class uvicorn.workers.UvicornWorker \
@@ -34,7 +34,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/alterion-panel /var/log/alterion-panel
+ReadWritePaths=/var/www/alterion-panel /var/log/alterion-panel
 
 # Resource limits
 LimitNOFILE=65536

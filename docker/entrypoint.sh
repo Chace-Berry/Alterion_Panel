@@ -45,6 +45,13 @@ echo ""
 echo "[4/4] Collecting static files..."
 python manage.py collectstatic --noinput || true
 
+# Step 5: Configure Nginx
+echo ""
+echo "[5/5] Configuring Nginx..."
+SERVER_NAME=${SERVER_NAME:-localhost}
+sed -i "s/{{SERVER_NAME}}/$SERVER_NAME/g" /etc/nginx/nginx.conf
+echo "✓ Nginx configured for $SERVER_NAME"
+
 echo ""
 echo "=========================================="
 echo "✓ Initialization complete!"
