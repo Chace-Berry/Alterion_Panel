@@ -19,7 +19,10 @@ COPY backend/backend/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Copy project files
-COPY backend/ ./
+COPY backend/ ./ 
+
+# Create logs directory and log file
+RUN mkdir -p backend/logs && touch backend/logs/log.log
 
 # Copy entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh
