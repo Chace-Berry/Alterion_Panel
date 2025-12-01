@@ -302,13 +302,29 @@ LOGGING = {
 }
 
 # CORS settings
+# Base origins
 CORS_ALLOWED_ORIGINS = [
     'https://localhost:13527',
     'https://127.0.0.1:13527',
-    'https://alterion-panel.coraldune.com',  # Removed trailing slash
 ]
 
+# Add custom origins from environment variable
+custom_cors_origins = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+if custom_cors_origins:
+    CORS_ALLOWED_ORIGINS.extend([o.strip() for o in custom_cors_origins.split(',') if o.strip()])
+
 CORS_ALLOW_CREDENTIALS = True
+
+# CSRF Trusted Origins
+CSRF_TRUSTED_ORIGINS = [
+    'https://localhost:13527',
+    'https://127.0.0.1:13527',
+]
+
+# Add custom CSRF origins from environment variable
+custom_csrf_origins = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+if custom_csrf_origins:
+    CSRF_TRUSTED_ORIGINS.extend([o.strip() for o in custom_csrf_origins.split(',') if o.strip()])
 
 # REST Framework settings
 REST_FRAMEWORK = {
