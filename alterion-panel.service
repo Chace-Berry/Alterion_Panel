@@ -1,30 +1,26 @@
 [Unit]
 Description=Alterion Panel - Server Management Dashboard
-After=network.target redis.service
-Wants=redis.service
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
 
 [Service]
-Type=notify
-User=www-data
-Group=www-data
-Environment="DJANGO_SETTINGS_MODULE=backend.settings"
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/alterion-panel/docker
+Environment="COMPOSE_PROJECT_NAME=alterion_panel"
 
-# Gunicorn with Uvicorn workers for async/WebSocket support
-WorkingDirectory=/var/www/alterion-panel/backend/backend
-Environment="PATH=/var/www/alterion-panel/venv/bin"
-ExecStart=/var/www/alterion-panel/venv/bin/gunicorn backend.asgi:application \
-    --bind 0.0.0.0:13527 \
-    --workers 4 \
-    --worker-class uvicorn.workers.UvicornWorker \
-    --timeout 120 \
-    --access-logfile /var/log/alterion-panel/access.log \
-    --error-logfile /var/log/alterion-panel/error.log \
-    --log-level info \
-    --capture-output \
-    --enable-stdio-inheritance
+# Start Docker containers
+ExecStart=/usr/bin/docker-compose up -d
+
+# Stop Docker containers
+ExecStop=/usr/bin/docker-compose down
+
+# Reload configuration
+ExecReload=/usr/bin/docker-compose restart backend
 
 # Restart policy
-Restart=always
+Restart=on-failure
 RestartSec=10
 StartLimitInterval=5min
 StartLimitBurst=5
@@ -32,9 +28,6 @@ StartLimitBurst=5
 # Security
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/www/alterion-panel /var/log/alterion-panel
 
 # Resource limits
 LimitNOFILE=65536

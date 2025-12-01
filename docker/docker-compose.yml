@@ -6,30 +6,50 @@ services:
     container_name: backend
     env_file:
       - ../backend/.env
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "8000:8000"
-      - "8080:8080"
+      - "13527:13527"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
     volumes:
       - ../backend:/app
       - backend_keys:/app/backend/services
       - backend_serverid:/app/backend/dashboard
     entrypoint: ["/entrypoint.sh"]
-    command: ["sh", "-c", "service nginx start && gunicorn backend.wsgi:application --bind 0.0.0.0:8000 --workers 3 && daphne backend.asgi:application --bind 0.0.0.0 --port 8080"]
+    command: [
+      "gunicorn",
+      "backend.asgi:application",
+      "--bind", "0.0.0.0:13527",
+      "--workers", "4",
+      "--worker-class", "uvicorn.workers.UvicornWorker",
+      "--timeout", "120",
+      "--log-level", "info",
+      "--capture-output",
+      "--enable-stdio-inheritance"
+    ]
 
   db:
     image: postgres:latest
     container_name: db
     environment:
-      POSTGRES_DB: ${ALTERION_DB_NAME:-alterion_db}
-      POSTGRES_USER: alterion_user
-      POSTGRES_PASSWORD: ${ALTERION_DB_PASSWORD:-alterion_pass}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: postgres
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:latest

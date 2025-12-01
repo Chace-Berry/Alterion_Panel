@@ -44,13 +44,31 @@ def decrypt_value(encrypted_value):
     decrypted = f.decrypt(encrypted_bytes)
     return decrypted.decode()
 
-def get_db_password():
+def get_or_create_db_credentials():
+    """
+    Generate or retrieve database credentials dynamically.
+    Creates: alterion-{randomstring} user and random password
+    Stores encrypted in system_secrets.db using Fernet key (memory only)
+    """
     db_path = BASE_DIR / 'system_secrets.db'
     conn = sqlite3.connect(str(db_path))
     c = conn.cursor()
     c.execute('CREATE TABLE IF NOT EXISTS secrets (key TEXT PRIMARY KEY, value TEXT)')
     
-    # Get or set db_name
+    # Get or generate db_user
+    c.execute('SELECT value FROM secrets WHERE key = ?', ('db_user',))
+    row = c.fetchone()
+    if row:
+        db_user = decrypt_value(row[0])
+    else:
+        # Generate unique database user: alterion-{random}
+        random_suffix = secrets.token_urlsafe(12).replace('-', '').replace('_', '')[:12]
+        db_user = f"alterion_{random_suffix}"
+        encrypted = encrypt_value(db_user)
+        c.execute('INSERT INTO secrets (key, value) VALUES (?, ?)', ('db_user', encrypted))
+        print(f"[INIT] Generated DB user: {db_user}")
+    
+    # Get or generate db_name (using server ID)
     c.execute('SELECT value FROM secrets WHERE key = ?', ('db_name',))
     row = c.fetchone()
     if row:
@@ -64,13 +82,15 @@ def get_db_password():
         else:
             import uuid
             serverid = uuid.uuid4().hex[:16]
+            serverid_path.parent.mkdir(parents=True, exist_ok=True)
             with open(serverid_path, 'w') as f:
                 f.write(serverid)
-        db_name = f"alterion-{serverid}"
+        db_name = f"alterion_{serverid}"
         encrypted = encrypt_value(db_name)
         c.execute('INSERT INTO secrets (key, value) VALUES (?, ?)', ('db_name', encrypted))
+        print(f"[INIT] Generated DB name: {db_name}")
     
-    # Get or set db_password
+    # Get or generate db_password
     c.execute('SELECT value FROM secrets WHERE key = ?', ('db_password',))
     row = c.fetchone()
     if row:
@@ -79,19 +99,36 @@ def get_db_password():
         password = secrets.token_urlsafe(32)
         encrypted = encrypt_value(password)
         c.execute('INSERT INTO secrets (key, value) VALUES (?, ?)', ('db_password', encrypted))
+        print(f"[INIT] Generated DB password (length: {len(password)})")
     
     conn.commit()
     conn.close()
-    return db_name, password
+    return db_user, db_name, password
 
-DB_NAME, DB_PASSWORD = get_db_password()
+DB_USER, DB_NAME, DB_PASSWORD = get_or_create_db_credentials()
 
 import os
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-07jj1fvq#v29s9r7i%k!h0is2=l4bay1yll8o5z1=9=f5f2=ud'
 
-ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,alterion-panel.coraldune.com').split(',')]
+# Build ALLOWED_HOSTS dynamically
+# Always allow localhost, 127.0.0.1, and local network IPs
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '.localhost',  # Allow all localhost subdomains
+    '*',  # Allow all hosts for local development/deployment
+]
+
+# Add custom hosts from environment variable (for nginx domain setup)
+# Use this to add your domain when configuring nginx
+custom_hosts = os.environ.get('ALLOWED_HOSTS', '')
+if custom_hosts:
+    # Remove the wildcard when custom hosts are provided in production
+    if '*' in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.remove('*')
+    ALLOWED_HOSTS.extend([h.strip() for h in custom_hosts.split(',') if h.strip()])
 
 # Server Port Configuration
 PORT = 13527  # Fixed HTTPS port for Alterion Panel
@@ -110,6 +147,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'channels',
     'rest_framework',
+    'backend',  # Main backend app for management commands
     'dashboard.apps.DashboardConfig',
     'services',
     'django_extensions',
@@ -160,10 +198,13 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': DB_NAME,
-        'USER': 'alterion_user',
+        'USER': DB_USER,
         'PASSWORD': DB_PASSWORD,
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
     },
     'secrets': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -264,7 +305,7 @@ LOGGING = {
 CORS_ALLOWED_ORIGINS = [
     'https://localhost:13527',
     'https://127.0.0.1:13527',
-    'https://alterion-panel.coraldune.com/',
+    'https://alterion-panel.coraldune.com',  # Removed trailing slash
 ]
 
 CORS_ALLOW_CREDENTIALS = True
