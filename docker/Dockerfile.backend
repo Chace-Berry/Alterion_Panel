@@ -22,6 +22,13 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 # Copy project files
 COPY backend/ ./
 
+# Ensure required files exist before running any Django commands
+RUN mkdir -p backend/logs && touch backend/logs/log.logs && \
+    if [ ! -f "backend/.env" ]; then \
+        echo "# Alterion Panel Backend Environment Variables" > backend/.env && \
+        echo "DEBUG=false" >> backend/.env; \
+    fi
+
 # Copy entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

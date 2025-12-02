@@ -8,6 +8,16 @@ echo "=========================================="
 # Navigate to the backend directory
 cd /app/backend
 
+# Ensure .env file exists (create empty if missing)
+if [ ! -f ".env" ]; then
+    echo "⚠ .env file not found. Creating default .env file..."
+    cat > .env << 'EOF'
+# Alterion Panel Backend Environment Variables
+DEBUG=false
+EOF
+    echo "✓ Created default .env file"
+fi
+
 # Ensure logs directory exists early to prevent FileNotFoundError on startup
 mkdir -p logs
 touch logs/log.log

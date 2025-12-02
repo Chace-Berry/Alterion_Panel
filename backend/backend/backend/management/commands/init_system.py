@@ -157,7 +157,7 @@ class Command(BaseCommand):
             else:
                 self.stdout.write(f'✓ Database already exists: {db_name}')
             
-            # Grant all privileges
+            # Grant all privileges on database
             cursor.execute(
                 sql.SQL("GRANT ALL PRIVILEGES ON DATABASE {} TO {}").format(
                     sql.Identifier(db_name),
@@ -167,6 +167,50 @@ class Command(BaseCommand):
             
             cursor.close()
             conn.close()
+            
+            # Connect to the new database to grant schema permissions
+            self.stdout.write(f'[INIT] Granting schema permissions on database: {db_name}')
+            db_conn = psycopg2.connect(
+                host=pg_host,
+                port=pg_port,
+                user='postgres',
+                password=os.environ.get('POSTGRES_PASSWORD', 'postgres'),
+                database=db_name
+            )
+            db_conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            db_cursor = db_conn.cursor()
+            
+            # Grant schema permissions
+            db_cursor.execute(
+                sql.SQL("GRANT ALL ON SCHEMA public TO {}").format(
+                    sql.Identifier(db_user)
+                )
+            )
+            db_cursor.execute(
+                sql.SQL("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {}").format(
+                    sql.Identifier(db_user)
+                )
+            )
+            db_cursor.execute(
+                sql.SQL("GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {}").format(
+                    sql.Identifier(db_user)
+                )
+            )
+            
+            # Set default privileges for future objects
+            db_cursor.execute(
+                sql.SQL("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {}").format(
+                    sql.Identifier(db_user)
+                )
+            )
+            db_cursor.execute(
+                sql.SQL("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {}").format(
+                    sql.Identifier(db_user)
+                )
+            )
+            
+            db_cursor.close()
+            db_conn.close()
             
             self.stdout.write(self.style.SUCCESS('[INIT] PostgreSQL setup complete'))
             
