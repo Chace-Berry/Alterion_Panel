@@ -98,3 +98,16 @@ class Command(BaseCommand):
             sys.exit(1)
 
         self.stdout.write(self.style.SUCCESS('Admin user creation process completed successfully.'))
+
+        # Write PGAdmin credentials to .env file in app/backend for Docker Compose
+        try:
+            import pathlib
+            # Save .env in backend directory (same level as backend and node_agent)
+            backend_dir = pathlib.Path(__file__).resolve().parents[3] / 'backend'
+            env_path = backend_dir / '.env'
+            with open(env_path, 'a', encoding='utf-8') as env_file:
+                env_file.write(f'\nPGADMIN_DEFAULT_EMAIL={user.email}\n')
+                env_file.write(f'PGADMIN_DEFAULT_PASSWORD={password}\n')
+            self.stdout.write(self.style.SUCCESS(f'PGAdmin credentials written to {env_path}'))
+        except Exception as e:
+            self.stdout.write(self.style.ERROR(f'Failed to write PGAdmin credentials to {env_path}: {str(e)}'))

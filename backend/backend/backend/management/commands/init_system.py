@@ -28,20 +28,14 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from django.db import connection
-
+        
         db_only = options.get('db_only', False)
         oauth_only = options.get('oauth_only', False)
-
-        # Check if PostgreSQL server is running before proceeding
-        if not self.is_postgres_running():
-            self.stdout.write(self.style.ERROR('[INIT] PostgreSQL server is not running or not reachable!'))
-            self.stdout.write(self.style.WARNING('[INIT] Please start the PostgreSQL server before running this command.'))
-            return
-
+        
         if not db_only and not oauth_only:
             # Run both if no flags specified
             self.stdout.write(self.style.SUCCESS('[INIT] Starting full system initialization...'))
-
+            
             # Only create DB if it doesn't exist
             if self.should_create_database():
                 self.create_postgres_user_and_db()
@@ -49,12 +43,12 @@ class Command(BaseCommand):
                 connection.close()
             else:
                 self.stdout.write(self.style.WARNING('[INIT] Database already exists, skipping creation...'))
-
+            
             self.ensure_oauth_application()
             self.stdout.write(self.style.SUCCESS('[INIT] System initialization complete!'))
         elif db_only:
             self.stdout.write(self.style.SUCCESS('[INIT] Creating PostgreSQL user and database...'))
-
+            
             # Check if database exists before creating
             if self.should_create_database():
                 self.create_postgres_user_and_db()
@@ -66,62 +60,36 @@ class Command(BaseCommand):
             self.ensure_oauth_application()
             self.stdout.write(self.style.SUCCESS('[INIT] OAuth2 setup complete!'))
 
-    def is_postgres_running(self):
-        """Check if PostgreSQL server is running and reachable"""
-        import os
-        import psycopg2
-        pg_host = getattr(settings, 'DATABASES', {}).get('default', {}).get('HOST', 'localhost')
-        pg_port = getattr(settings, 'DATABASES', {}).get('default', {}).get('PORT', 5432)
-        try:
-            conn = psycopg2.connect(
-                host=pg_host,
-                port=pg_port,
-                user='postgres',
-                password=os.environ.get('POSTGRES_PASSWORD', 'postgres'),
-                database='postgres',
-                connect_timeout=3
-            )
-            conn.close()
-            return True
-        except Exception as e:
-            return False
-
     def should_create_database(self):
-        """Check if database user and database need to be created"""
+        """Try to connect to the target DB as the intended user and check for a required table. If fails, create DB/user."""
         import os
-        
         db_user = settings.DB_USER
         db_name = settings.DB_NAME
+        db_password = settings.DB_PASSWORD
         pg_host = settings.DATABASES['default']['HOST']
         pg_port = settings.DATABASES['default']['PORT']
-        
+        required_table = getattr(settings, 'REQUIRED_DB_TABLE', 'auth_user')  # Default to Django's user table
         try:
-            # Connect as postgres superuser
             conn = psycopg2.connect(
                 host=pg_host,
                 port=pg_port,
-                user='postgres',
-                password=os.environ.get('POSTGRES_PASSWORD', 'postgres'),
-                database='postgres'
+                user=db_user,
+                password=db_password,
+                database=db_name
             )
-            cursor = conn.cursor()
-            
-            # Check if database exists
-            cursor.execute(
-                "SELECT 1 FROM pg_database WHERE datname = %s",
-                (db_name,)
-            )
-            db_exists = cursor.fetchone()
-            
-            cursor.close()
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = %s", (required_table,))
+            table_exists = cur.fetchone()
+            cur.close()
             conn.close()
-            
-            # Only create if database doesn't exist
-            return not db_exists
-            
+            if table_exists:
+                self.stdout.write(self.style.SUCCESS(f'[INIT] Table {required_table} exists in DB {db_name}. Skipping creation.'))
+                return False
+            else:
+                self.stdout.write(self.style.WARNING(f'[INIT] Table {required_table} does not exist in DB {db_name}. Will create DB/user.'))
+                return True
         except Exception as e:
-            self.stdout.write(self.style.WARNING(f'[INIT] Could not check database existence: {str(e)}'))
-            # If we can't check, assume we need to create
+            self.stdout.write(self.style.WARNING(f'[INIT] Could not connect to DB {db_name} as user {db_user}: {str(e)}'))
             return True
 
     def create_postgres_user_and_db(self):

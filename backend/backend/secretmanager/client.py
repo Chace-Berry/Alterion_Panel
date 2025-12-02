@@ -1,5 +1,6 @@
 import requests
 
+
 class SecretManagerClient:
     def __init__(self, api_url, client_id, client_secret, decrypt_func=None):
         self.api_url = api_url.rstrip('/')

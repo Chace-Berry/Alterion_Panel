@@ -151,12 +151,12 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'secretmanager',
     'channels',
     'rest_framework',
     'backend',  # Main backend app for management commands
     'dashboard.apps.DashboardConfig',
     'services',
-    'secretmanager',
     'django_extensions',
     'oauth2_provider',
     'accounts',
