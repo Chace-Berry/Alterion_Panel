@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: backend
     env_file:
-      - ../backend/.env
+      - ../bin/backend/.env
     environment:
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
@@ -77,7 +77,7 @@ services:
       - backend
       - redis
     env_file:
-      - ../backend/.env
+      - ../bin/backend/.env
     volumes:
       - ../backend:/app
 
