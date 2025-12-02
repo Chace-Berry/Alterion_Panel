@@ -11,9 +11,14 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Ensure logs directory exists early so FileHandler does not fail
+LOG_DIR = BASE_DIR / 'logs'
+os.makedirs(LOG_DIR, exist_ok=True)
 
 
 # Quick-start development settings - unsuitable for production
@@ -255,6 +260,38 @@ STATICFILES_DIRS = [
 ]
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+# ----------------------------------------------------------------------------
+# Environment / Debug
+# ----------------------------------------------------------------------------
+DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+
+# ----------------------------------------------------------------------------
+# Security & HTTPS Settings (respect reverse proxy TLS termination)
+# ----------------------------------------------------------------------------
+# Trust X-Forwarded-Proto header set by nginx so request.is_secure() works
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Force HTTPS redirects when not in DEBUG
+SECURE_SSL_REDIRECT = not DEBUG
+
+# Cookie security
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# HTTP Strict Transport Security (only enable when cert is valid & stable)
+SECURE_HSTS_SECONDS = 31536000  # 1 year
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+
+# Other recommended headers
+SECURE_REFERRER_POLICY = 'strict-origin'
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+
+# (CORS/CSRF dynamic expansion deferred until lists are defined below)
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -319,12 +356,29 @@ CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = [
     'https://localhost:13527',
     'https://127.0.0.1:13527',
+    
 ]
 
 # Add custom CSRF origins from environment variable
 custom_csrf_origins = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
 if custom_csrf_origins:
     CSRF_TRUSTED_ORIGINS.extend([o.strip() for o in custom_csrf_origins.split(',') if o.strip()])
+
+# After both CORS_ALLOWED_ORIGINS and CSRF_TRUSTED_ORIGINS exist, expand from ALLOWED_HOSTS
+def _host_to_origin(hostname: str):
+    hostname = hostname.strip()
+    if not hostname or hostname == '*':
+        return None
+    if hostname.startswith('http://') or hostname.startswith('https://'):
+        return hostname.replace('http://', 'https://')  # enforce https
+    return f'https://{hostname}'
+
+_extra_origins = [o for o in (_host_to_origin(h) for h in ALLOWED_HOSTS) if o]
+for origin in _extra_origins:
+    if origin not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(origin)
+    if origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(origin)
 
 # REST Framework settings
 REST_FRAMEWORK = {

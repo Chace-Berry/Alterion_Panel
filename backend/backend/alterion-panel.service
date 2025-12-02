@@ -1,0 +1,37 @@
+[Unit]
+Description=Alterion Panel - Server Management Dashboard
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/alterion-panel/bin/docker
+Environment="COMPOSE_PROJECT_NAME=alterion_panel"
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+# Start Docker stack (supports compose v1 and plugin)
+ExecStart=/bin/sh -c 'if command -v docker-compose >/dev/null 2>&1; then docker-compose up -d; else docker compose up -d; fi'
+
+# Stop Docker stack
+ExecStop=/bin/sh -c 'if command -v docker-compose >/dev/null 2>&1; then docker-compose down; else docker compose down; fi'
+
+# Reload backend only
+ExecReload=/bin/sh -c 'if command -v docker-compose >/dev/null 2>&1; then docker-compose restart backend; else docker compose restart backend; fi'
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target

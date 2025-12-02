@@ -138,7 +138,7 @@ class CustomTokenView(TokenView):
                     access_token,
                     httponly=True,
                     secure=True,
-                    samesite='None',
+                    samesite='Lax',
                     max_age=cookie_max_age,
                     path='/',
                 )
@@ -150,7 +150,7 @@ class CustomTokenView(TokenView):
                     refresh_token,
                     httponly=True,
                     secure=True,
-                    samesite='None',
+                    samesite='Lax',
                     max_age=cookie_max_age,
                     path='/',
                 )

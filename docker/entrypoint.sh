@@ -8,6 +8,10 @@ echo "=========================================="
 # Navigate to the backend directory
 cd /app/backend
 
+# Ensure logs directory exists early to prevent FileNotFoundError on startup
+mkdir -p logs
+touch logs/log.log
+
 # Step 1: Generate Server ID if it doesn't exist
 echo ""
 echo "[1/4] Checking Server ID..."
