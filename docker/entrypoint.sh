@@ -65,24 +65,29 @@ python manage.py init_system --db-only || {
     exit 1
 }
 
-# Step 5: Run database migrations
+# Step 5: Make migrations (in case models changed)
 echo ""
-echo "[5/7] Running database migrations..."
+echo "[5/7] Making migrations..."
+python manage.py makemigrations --noinput || true
+
+# Step 6: Run database migrations
+echo ""
+echo "[6/7] Running database migrations..."
 python manage.py migrate --noinput || true
 
-# Step 6: Create OAuth application (after migrations)
+# Step 7: Create OAuth application (after migrations)
 echo ""
-echo "[6/7] Setting up OAuth application..."
+echo "[7/8] Setting up OAuth application..."
 python manage.py init_system --oauth-only || echo "⚠ OAuth setup had issues, continuing..."
 
-# Step 7: Collect static files
+# Step 8: Collect static files
 echo ""
-echo "[7/8] Collecting static files..."
+echo "[8/9] Collecting static files..."
 python manage.py collectstatic --noinput || true
 
-# Step 8: Configure Nginx
+# Step 9: Configure Nginx
 echo ""
-echo "[8/8] Configuring Nginx..."
+echo "[9/9] Configuring Nginx..."
 SERVER_NAME=${SERVER_NAME:-localhost}
 sed -i "s/{{SERVER_NAME}}/$SERVER_NAME/g" /etc/nginx/nginx.conf
 echo "✓ Nginx configured for $SERVER_NAME"
