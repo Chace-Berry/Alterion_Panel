@@ -10,7 +10,7 @@ from .file_manager_views import FileManagerViewSet
 from .domain_views import (
     DomainViewSet, whois_lookup, verify_domain, get_domain_verification_tokens
 )
-from .secret_manager_views import (
+from secretmanager.views import (
     SecretProjectViewSet, SecretEnvironmentViewSet, SecretViewSet
 )
 

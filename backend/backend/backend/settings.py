@@ -1,3 +1,4 @@
+OAUTH2_PROVIDER_APPLICATION_MODEL = 'oauth2_provider.Application'
 """
 Django settings for backend project.
 
@@ -155,6 +156,7 @@ INSTALLED_APPS = [
     'backend',  # Main backend app for management commands
     'dashboard.apps.DashboardConfig',
     'services',
+    'secretmanager',
     'django_extensions',
     'oauth2_provider',
     'accounts',

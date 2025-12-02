@@ -5,7 +5,7 @@ Stores SSH username and password as secrets in hidden SSH environment
 import logging
 import secrets
 import string
-from .secret_manager_models import SecretProject, SecretEnvironment, Secret, SecretVersion
+from secretmanager.models import SecretProject, SecretEnvironment, Secret, SecretVersion
 from crypto_utils import encrypt_value, decrypt_value
 from django.contrib.auth import get_user_model
 
