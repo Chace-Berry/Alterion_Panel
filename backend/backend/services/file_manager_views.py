@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from authentication.cookie_oauth2 import CookieOAuth2Authentication
 from django.shortcuts import get_object_or_404
 from dashboard.models import Server
+from . import host_file_manager
 import paramiko
 import os
 import stat
@@ -123,7 +124,39 @@ class FileManagerViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=['get'], url_path='list')
     def list_files(self, request, pk=None):
-        """List files in a directory (supports local, node, and remote servers)"""
+        """List files in a directory from host filesystem"""
+        path = request.query_params.get('path', '/')
+        use_home = request.query_params.get('use_home', 'false').lower() == 'true'
+        
+        # Use host file manager by default
+        file_manager_logger.info(f"[HOST] list_files called - path: {path}, use_home: {use_home}")
+        try:
+            # If no path specified or use_home requested, start at host root
+            if not path or path == '/' or use_home:
+                path = ''
+            
+            resolved_path = host_file_manager.resolve_host_path(path)
+            home_directory = str(host_file_manager.get_host_root())
+            items = host_file_manager.list_dir(resolved_path)
+            
+            file_manager_logger.info(f"[HOST] Listed {len(items)} files in {resolved_path}")
+            return Response({
+                'path': str(resolved_path),
+                'files': items,
+                'home_directory': home_directory
+            })
+        except PermissionError as e:
+            return Response({'error': str(e)}, status=status.HTTP_403_FORBIDDEN)
+        except FileNotFoundError as e:
+            return Response({'error': f'Path not found: {str(e)}'}, status=status.HTTP_404_NOT_FOUND)
+        except NotADirectoryError as e:
+            return Response({'error': f'Not a directory: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            file_manager_logger.error(f"[HOST] Failed to list directory: {e}", exc_info=True)
+            return Response({'error': f'Failed to list directory: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def _old_list_files_with_sftp(self, request, pk=None):
+        """Old implementation kept for reference"""
         path = request.query_params.get('path', '/')
         use_home = request.query_params.get('use_home', 'false').lower() == 'true'
         home_directory = None
