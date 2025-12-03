@@ -60,8 +60,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      networks:
-        - alterion_net
+    networks:
+      - alterion_net
 
   redis:
     image: redis:latest
@@ -101,7 +101,7 @@ services:
     # Use a short wrapper command to wait until the 'backend' hostname resolves
     # before launching nginx. This prevents nginx from restarting repeatedly
     # due to unresolved upstreams.
-    command: ["/bin/sh", "-c", "echo Waiting for backend; i=0; until getent hosts backend >/dev/null 2>&1 || ping -c1 backend >/dev/null 2>&1 || nc -z backend 13527 >/dev/null 2>&1 || [ $i -ge 60 ]; do i=$((i+1)); echo Waiting for backend... $i; sleep 1; done; echo backend resolvable, starting nginx; nginx -g 'daemon off;'"]
+    command: ["/bin/sh", "-c", "echo Waiting for backend; i=0; until getent hosts backend >/dev/null 2>&1 || ping -c1 backend >/dev/null 2>&1 || nc -z backend 13527 >/dev/null 2>&1 || [ $$i -ge 60 ]; do i=$$((i+1)); echo Waiting for backend... $$i; sleep 1; done; echo backend resolvable, starting nginx; nginx -g 'daemon off;'"]
     volumes:
       - ../docker/nginx.backend.conf:/etc/nginx/conf.d/default.conf
       - ../backend/backend/certs:/etc/letsencrypt
