@@ -60,6 +60,7 @@ Alterion Panel offers a wide range of features for server management:
 
 
 </div>
+
 ---
 
 ## 📦 Installation
