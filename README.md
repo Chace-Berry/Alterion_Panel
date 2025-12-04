@@ -51,12 +51,21 @@ Alterion Panel offers a wide range of features for server management:
 - **Docker Support**: Containerized deployment options
 - **Crypto Utilities**: Encrypted storage and key management
 
-<div style="background: linear-gradient(135deg, #2d2d2d 0%, #1a1a1a 100%); color: white; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0; box-shadow: 0 8px 32px 0 rgba(217, 231, 232, 0.36); border: opx solid #404040;">
+---
 
-**Support the development of Alterion Panel:**</br>
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-orange?logo=buymeacoffee&logoColor=white)](https://buymeacoffee.com/chaceberry)
 
-</div>
+>
+> <div align="center">
+> **Support the development of Alterion Panel**
+><div align="center">
+> <br>
+><div align="center">
+>   <a href="https://buymeacoffee.com/chaceberry">
+>     <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-orange?logo=buymeacoffee&logoColor=white" alt="Buy Me A Coffee">
+>   </a>
+> </div>
+
+---
 
 ## 📦 Installation
 
@@ -137,7 +146,7 @@ This project is licensed under the Alterion Public Use License (APUL) - see the 
 ---
 
 <div align="center">
-
+*Made with ❤️ by Chace Berry*
 **Support the project:**</br>
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-orange?logo=buymeacoffee&logoColor=white)](https://buymeacoffee.com/chaceberry)
 
@@ -145,7 +154,7 @@ This project is licensed under the Alterion Public Use License (APUL) - see the 
 [![Website](https://img.shields.io/badge/Website-Coming%20Soon-blue?style=flat&logo=globe&logoColor=white)](.)
 [![GitHub](https://img.shields.io/badge/GitHub-Chace--Berry-181717?style=flat&logo=github&logoColor=white)](https://github.com/Chace-Berry)
 
-*Made with ❤️ by Chace Berry*
+
 
 **Contact: [chaceberry686@gmail.com](mailto:chaceberry686@gmail.com)**
 
