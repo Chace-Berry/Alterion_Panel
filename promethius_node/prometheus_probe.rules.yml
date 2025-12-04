@@ -1,0 +1,14 @@
+groups:
+  - name: prometheus_probe
+    rules:
+      - record: system_overall_health
+        expr: (
+          (avg by(instance) (node_cpu_seconds_total{mode="idle"}) > 0.7)
+          and (avg by(instance) (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 0.2)
+          and (avg by(instance) (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) > 0.1)
+        )
+        labels:
+          severity: "critical"
+        annotations:
+          summary: "System overall health status (1=healthy, 0=unhealthy)"
+          description: "Aggregated health based on CPU, memory, and disk availability."

@@ -1,0 +1,146 @@
+groups:
+  - name: system_alerts
+    rules:
+      # CPU Usage Alerts
+      - alert: CriticalCPUUsage
+        expr: system_cpu_usage_percent > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical CPU usage (>90%)"
+          description: "CPU usage is above 90%. Check top processes."
+      - alert: HighCPUUsage
+        expr: system_cpu_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage (>80%)"
+          description: "CPU usage is above 80%. Monitor system load."
+
+      # Memory Usage Alerts
+      - alert: CriticalMemoryUsage
+        expr: system_memory_usage_percent > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical memory usage (>90%)"
+          description: "Memory usage is above 90%. OOM risk."
+      - alert: HighMemoryUsage
+        expr: system_memory_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage (>80%)"
+          description: "Memory usage is above 80%. Monitor memory consumption."
+
+      # Disk Usage Alerts
+      - alert: CriticalDiskUsage
+        expr: system_disk_usage_percent > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical disk usage (>90%)"
+          description: "Disk usage is above 90%. Risk of running out of space."
+      - alert: LowDiskSpace
+        expr: system_disk_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low disk space (>80%)"
+          description: "Disk usage is above 80%. Monitor disk space."
+
+      # Swap Usage Alerts
+      - alert: CriticalSwapUsage
+        expr: system_swap_usage_percent > 80
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical swap usage (>80%)"
+          description: "Swap usage is above 80%. Memory exhaustion risk."
+      - alert: HighSwapUsage
+        expr: system_swap_usage_percent > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High swap usage (>50%)"
+          description: "Swap usage is above 50%. Monitor swap usage."
+
+      # Load Average Alerts
+      - alert: CriticalLoadAverage
+        expr: system_load_average > (system_cpu_count * 2)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical load average"
+          description: "Load average is critically high."
+      - alert: HighLoadAverage
+        expr: system_load_average > (system_cpu_count * 1)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High load average"
+          description: "Load average is high. Monitor system load."
+
+      # Network Error Alerts
+      - alert: CriticalNetworkPacketErrors
+        expr: system_network_packet_error_percent > 5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical network packet error rate (>5%)"
+          description: "High packet error rate detected."
+      - alert: HighNetworkPacketErrors
+        expr: system_network_packet_error_percent > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High network packet error rate (>1%)"
+          description: "Monitor network packet errors."
+
+      # Temperature Alerts
+      - alert: CriticalTemperature
+        expr: system_temperature_celsius > 85
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical hardware temperature (>85°C)"
+          description: "Hardware temperature is critically high."
+      - alert: HighTemperature
+        expr: system_temperature_celsius > 75
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High hardware temperature (>75°C)"
+          description: "Hardware temperature is high. Monitor cooling."
+
+      # Battery Alerts
+      - alert: CriticalBatteryLevel
+        expr: system_battery_percent < 20 and system_battery_plugged == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical battery level (<20%)"
+          description: "Battery level is critically low and not plugged in."
+      - alert: LowBatteryLevel
+        expr: system_battery_percent < 50 and system_battery_plugged == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low battery level (<50%)"
+          description: "Battery level is low and not plugged in."
