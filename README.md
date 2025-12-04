@@ -53,15 +53,13 @@ Alterion Panel offers a wide range of features for server management:
 
 ---
 
+>  **Support the development of Alterion Panel** 
 
-
-> <div align="center"> **Support the development of Alterion Panel** </div>
-> <div align="center">
->   <a href="https://buymeacoffee.com/chaceberry">
->     <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-orange?logo=buymeacoffee&logoColor=white" alt="Buy Me A Coffee">
->   </a>
-> </div>
-
+<p align="center">
+  <a href="https://buymeacoffee.com/chaceberry">
+    <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-orange?logo=buymeacoffee&logoColor=white" alt="Buy Me A Coffee">
+  </a>
+</p>
 
 ---
 
@@ -145,16 +143,14 @@ This project is licensed under the Alterion Public Use License (APUL) - see the 
 
 <div align="center">
 *Made with ❤️ by Chace Berry*
-**Support the project:**</br>
+
+**Support the project:**  
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-orange?logo=buymeacoffee&logoColor=white)](https://buymeacoffee.com/chaceberry)
 
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.com/invite/3gy9gJyJY8)
 [![Website](https://img.shields.io/badge/Website-Coming%20Soon-blue?style=flat&logo=globe&logoColor=white)](.)
 [![GitHub](https://img.shields.io/badge/GitHub-Chace--Berry-181717?style=flat&logo=github&logoColor=white)](https://github.com/Chace-Berry)
 
-
-
-**Contact: [chaceberry686@gmail.com](mailto:chaceberry686@gmail.com)**
-
+**Contact:** [chaceberry686@gmail.com](mailto:chaceberry686@gmail.com)
 </div></content>
 
