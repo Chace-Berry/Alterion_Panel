@@ -151,6 +151,5 @@ This project is licensed under the Alterion Public Use License (APUL) - see the 
 [![Website](https://img.shields.io/badge/Website-Coming%20Soon-blue?style=flat&logo=globe&logoColor=white)](.)
 [![GitHub](https://img.shields.io/badge/GitHub-Chace--Berry-181717?style=flat&logo=github&logoColor=white)](https://github.com/Chace-Berry)
 
-**Contact:** [chaceberry686@gmail.com](mailto:chaceberry686@gmail.com)
 </div></content>
 
