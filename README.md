@@ -143,7 +143,7 @@ This project is licensed under the Alterion Public Use License (APUL) - see the 
 
 <div align="center">
 
-# Made with ❤️ by Chace Berry
+**Made with ❤️ by Chace Berry**
 
 **Support the project:**  
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-orange?logo=buymeacoffee&logoColor=white)](https://buymeacoffee.com/chaceberry)
