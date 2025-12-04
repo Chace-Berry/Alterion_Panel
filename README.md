@@ -13,7 +13,7 @@
 [![Django](https://img.shields.io/badge/Django-5.2.6-092E20?style=flat&logo=django&logoColor=white)](https://www.djangoproject.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react&logoColor=black)](https://reactjs.org/)
 [![Docker](https://img.shields.io/badge/Docker-4.53.0-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
-[![Version](https://img.shields.io/badge/version-0.2.2--beta-blue.svg)](.)
+[![Version](https://img.shields.io/badge/version-0.2.22--beta-blue.svg)](.)
 
 
 _A modern, open-source web hosting control panel — manage servers, websites, users, and SSL certificates with ease. Built on a Django REST API backend and a React frontend, and ready for containerized deployment with Docker._
