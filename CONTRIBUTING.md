@@ -210,8 +210,8 @@ Types:
 
 ## 🙋 Getting Help
 
-- **GitHub Issues**: For bugs and feature requests
-- **GitHub Discussions**: For questions and general discussion
+- [GitHub Issues](https://github.com/Chace-Berry/Alterion_Panel/issues): For bugs and feature requests
+- [GitHub Discussions](https://github.com/Chace-Berry/Alterion_Panel/discussions): For questions and general discussion
 - **Email**: chaceberry686@gmail.com for direct contact
 
 ## 📄 License
