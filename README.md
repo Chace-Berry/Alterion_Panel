@@ -54,9 +54,11 @@ Alterion Panel offers a wide range of features for server management:
 ---
 
 
->
-> <div align="center">
+
+> <div align="center"
+
 > **Support the development of Alterion Panel**
+
 ><div align="center">
 > <br>
 ><div align="center">
