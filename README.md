@@ -56,11 +56,8 @@ Alterion Panel offers a wide range of features for server management:
 
 
 > <div align="center"
-
 > **Support the development of Alterion Panel**
-
 > <br>
-
 >   <a href="https://buymeacoffee.com/chaceberry">
 >     <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-orange?logo=buymeacoffee&logoColor=white" alt="Buy Me A Coffee">
 >   </a>
